@@ -1,3 +1,5 @@
-mod cartridge;
+mod error;
+mod rom;
 
-pub use cartridge::*;
+pub use error::*;
+pub use rom::*;

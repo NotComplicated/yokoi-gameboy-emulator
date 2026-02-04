@@ -18,11 +18,16 @@ impl Display for RomError {
 }
 
 impl Rom {
-    pub fn read(path: impl AsRef<Path>) -> Result<Self, RomError> {
+    pub fn read(path: impl AsRef<Path>) -> Result<Self, super::Error> {
         let rom = std::fs::read(path)
             .map(|data| Self { data: data.into() })
-            .map_err(RomError::Io)?;
+            .map_err(RomError::Io)
+            .map_err(super::Error::Rom)?;
 
         Ok(rom)
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
     }
 }
