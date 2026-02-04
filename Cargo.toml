@@ -1,0 +1,11 @@
+[workspace]
+members = ["yokoi-tui"]
+
+[package]
+name = "yokoi"
+version = "0.1.0"
+edition = "2024"
+description = "A gameboy emulation library."
+license = "MIT"
+
+[dependencies]
