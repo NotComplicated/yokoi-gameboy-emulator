@@ -52,7 +52,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             writeln!(out, "Bytes: {}", field)?;
 
-            write!(
+            writeln!(
                 out,
                 "Color Support: {}",
                 match cart.color_supported() {
@@ -61,6 +61,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     _ => "No",
                 }
             )?;
+
+            writeln!(out, "Licensee: {}", cart.licensee())?;
         }
 
         Commands::CartDump { bytes, path } => {
