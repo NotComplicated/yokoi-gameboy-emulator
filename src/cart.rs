@@ -1,6 +1,10 @@
+use std::path::Path;
+
 const ENTRY_POINT: usize = 0x0100;
 const LOGO_START: usize = 0x0104;
 const LOGO_END: usize = 0x0134;
+const TITLE_START: usize = 0x0134;
+const TITLE_END: usize = 0x0144;
 const CHECKSUM_END: usize = 0x0150;
 
 const LOGO_BYTES: &[u8] = &[
@@ -20,12 +24,14 @@ pub enum Error {
 }
 
 impl Cart {
-    pub fn read(path: impl AsRef<std::path::Path>) -> Result<Self, Error> {
+    pub fn read(path: impl AsRef<Path>) -> Result<Self, Error> {
         let data = std::fs::read(path)?;
         if data.len() < CHECKSUM_END {
             Err(Error::Invalid("not enough data"))
         } else if &data[LOGO_START..LOGO_END] != LOGO_BYTES {
             Err(Error::Invalid("missing Nintendo logo"))
+        } else if !data[TITLE_START..TITLE_END].iter().all(u8::is_ascii) {
+            Err(Error::Invalid("missing title data"))
         } else {
             Ok(Self(data))
         }
@@ -33,5 +39,14 @@ impl Cart {
 
     pub fn data(&self) -> &[u8] {
         &self.0
+    }
+
+    pub fn title(&self) -> &str {
+        let title_region = &self.0[TITLE_START..TITLE_END];
+        let end_pos = title_region
+            .iter()
+            .position(|&b| b == 0x00)
+            .unwrap_or(title_region.len());
+        std::str::from_utf8(&title_region[0..end_pos]).expect("validated in read()")
     }
 }
