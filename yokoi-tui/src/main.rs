@@ -63,6 +63,43 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             )?;
 
             writeln!(out, "Licensee: {}", cart.licensee())?;
+
+            write!(out, "Features: ")?;
+            let features = cart.features();
+            let mut first = true;
+            for feature in features {
+                if first {
+                    first = false;
+                } else {
+                    write!(out, ", ")?;
+                }
+                write!(
+                    out,
+                    "{}",
+                    match feature {
+                        yokoi::cart::Feature::Mbc1 => "MBC1",
+                        yokoi::cart::Feature::Mbc2 => "MBC2",
+                        yokoi::cart::Feature::Mbc3 => "MBC3",
+                        yokoi::cart::Feature::Mbc5 => "MBC5",
+                        yokoi::cart::Feature::Mbc6 => "MBC6",
+                        yokoi::cart::Feature::Mbc7 => "MBC7",
+                        yokoi::cart::Feature::Mmm01 => "MMM01",
+                        yokoi::cart::Feature::Ram => "RAM",
+                        yokoi::cart::Feature::Battery => "Battery",
+                        yokoi::cart::Feature::Timer => "Timer",
+                        yokoi::cart::Feature::Rumble => "Rumble",
+                        yokoi::cart::Feature::Sensor => "Sensor",
+                        yokoi::cart::Feature::Camera => "Camera",
+                        yokoi::cart::Feature::Tamagotchi => "Tamagotchi",
+                        yokoi::cart::Feature::HuC1 => "HuC1",
+                        yokoi::cart::Feature::HuC3 => "HuC3",
+                    }
+                )?;
+            }
+            if features.is_empty() {
+                write!(out, "ROM only")?;
+            }
+            writeln!(out)?;
         }
 
         Commands::CartDump { bytes, path } => {

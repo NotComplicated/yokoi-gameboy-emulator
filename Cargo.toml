@@ -9,4 +9,5 @@ description = "A gameboy emulation library."
 license = "MIT"
 
 [dependencies]
+enumset = "1.1.10"
 thiserror = "2.0.18"

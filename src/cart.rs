@@ -8,6 +8,7 @@ const CGB_FLAG: usize = 0x0143;
 const TITLE_END: usize = 0x0144;
 const NEW_LICENSEE_START: usize = 0x0144;
 const NEW_LICENSEE_END: usize = 0x0146;
+const FEATURES: usize = 0x0147;
 const OLD_LICENSEE: usize = 0x014B;
 const CHECKSUM_END: usize = 0x0150;
 
@@ -32,10 +33,31 @@ pub enum Error {
     Invalid(&'static str),
 }
 
+#[derive(Debug)]
 pub enum ColorSupport {
     BackwardsCompatible,
     Exclusive,
     No,
+}
+
+#[derive(enumset::EnumSetType, Debug)]
+pub enum Feature {
+    Mbc1,
+    Mbc2,
+    Mbc3,
+    Mbc5,
+    Mbc6,
+    Mbc7,
+    Mmm01,
+    Ram,
+    Battery,
+    Timer,
+    Rumble,
+    Sensor,
+    Camera,
+    Tamagotchi,
+    HuC1,
+    HuC3,
 }
 
 impl Cart {
@@ -75,6 +97,39 @@ impl Cart {
             CGB_COMPAT => ColorSupport::BackwardsCompatible,
             CGB_EXCL => ColorSupport::Exclusive,
             _ => ColorSupport::No,
+        }
+    }
+
+    pub fn features(&self) -> enumset::EnumSet<Feature> {
+        match self.0[FEATURES] {
+            0x01 => Feature::Mbc1.into(),
+            0x02 => Feature::Mbc1 | Feature::Ram,
+            0x03 => Feature::Mbc1 | Feature::Ram | Feature::Battery,
+            0x05 => Feature::Mbc2.into(),
+            0x06 => Feature::Mbc2 | Feature::Battery,
+            0x0B => Feature::Mmm01.into(),
+            0x0C => Feature::Mmm01 | Feature::Ram,
+            0x0D => Feature::Mmm01 | Feature::Ram | Feature::Battery,
+            0x0F => Feature::Mbc3 | Feature::Timer | Feature::Battery,
+            0x10 => Feature::Mbc3 | Feature::Timer | Feature::Ram | Feature::Battery,
+            0x11 => Feature::Mbc3.into(),
+            0x12 => Feature::Mbc3 | Feature::Ram,
+            0x13 => Feature::Mbc3 | Feature::Ram | Feature::Battery,
+            0x19 => Feature::Mbc5.into(),
+            0x1A => Feature::Mbc5 | Feature::Ram,
+            0x1B => Feature::Mbc5 | Feature::Ram | Feature::Battery,
+            0x1C => Feature::Mbc5 | Feature::Rumble,
+            0x1D => Feature::Mbc5 | Feature::Rumble | Feature::Ram,
+            0x1E => Feature::Mbc5 | Feature::Rumble | Feature::Ram | Feature::Battery,
+            0x20 => Feature::Mbc6.into(),
+            0x22 => {
+                Feature::Mbc7 | Feature::Sensor | Feature::Rumble | Feature::Ram | Feature::Battery
+            }
+            0xFC => Feature::Camera.into(),
+            0xFD => Feature::Tamagotchi.into(),
+            0xFE => Feature::HuC3.into(),
+            0xFF => Feature::HuC1 | Feature::Ram | Feature::Battery,
+            _ => Default::default(),
         }
     }
 
