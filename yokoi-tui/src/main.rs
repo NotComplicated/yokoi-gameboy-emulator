@@ -9,65 +9,42 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Print ROM information
-    RomInfo {
-        /// Hex-dump the ROM contents
+    /// Print cartridge information
+    CartInfo {
+        /// Hex-dump the cartridge file contents
         #[arg(long)]
         dump: bool,
 
-        /// Path to ROM file
+        /// Path to cartridge file
         path: PathBuf,
     },
 }
 
-trait ResultExt<T> {
-    fn or_exit(self) -> T;
-}
-
-impl<T> ResultExt<T> for Result<T, std::io::Error> {
-    fn or_exit(self) -> T {
-        match self {
-            Ok(ok) => ok,
-            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => {
-                std::process::exit(141);
-            }
-            Err(err) => {
-                eprintln!("IO Error: {err}");
-                std::process::exit(1);
-            }
-        }
-    }
-}
-
-impl<T> ResultExt<T> for Result<T, yokoi::Error> {
-    fn or_exit(self) -> T {
-        match self {
-            Ok(ok) => ok,
-            Err(err) => {
-                eprintln!("{err}");
-                std::process::exit(1);
-            }
-        }
-    }
-}
-
 fn main() {
+    if let Err(err) = run() {
+        eprintln!("{err}");
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let mut out = std::io::stdout().lock();
     match cli.command {
-        Commands::RomInfo { dump, path } => {
-            let rom = yokoi::Rom::read(&path).or_exit();
+        Commands::CartInfo { dump, path } => {
+            let cart = yokoi::cart::Cart::read(&path)?;
             if dump {
-                let width = crossterm::terminal::size().or_exit().0;
-                let chunk_size = ((width as usize - "0000:  ".len()) / 3).next_power_of_two() / 2;
-                for (i, chunk) in rom.data().chunks(chunk_size).enumerate() {
-                    write!(&mut out, "{:04X}:  ", i * chunk_size).or_exit();
-                    for &byte in chunk {
-                        write!(&mut out, "{byte:02X} ").or_exit();
+                let width = crossterm::terminal::size()?.0;
+                let chunk_size = ((width as usize - "000000:  ".len()) / 3).next_power_of_two() / 2;
+                for (i, chunk) in cart.data().chunks(chunk_size).enumerate() {
+                    write!(&mut out, "{:06X}:  ", i * chunk_size)?;
+                    for byte in chunk {
+                        write!(&mut out, "{byte:02X} ")?;
                     }
-                    writeln!(&mut out).or_exit();
+                    writeln!(&mut out)?;
                 }
             }
+            println!("{}", cart.data().len());
         }
     }
+    Ok(())
 }
