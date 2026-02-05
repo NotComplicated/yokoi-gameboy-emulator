@@ -43,9 +43,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(out, "Title: {}", cart.title())?;
 
             let len = cart.data().len();
-            let field = if len > 1_000_000 {
+            let field = if len >= 1_000_000 {
                 format_args!("{} ({:.2} MB)", len, len as f32 / 1_000_000.0)
-            } else if len > 1_000 {
+            } else if len >= 1_000 {
                 format_args!("{} ({:.2} KB)", len, len as f32 / 1_000.0)
             } else {
                 format_args!("{len}")
@@ -100,6 +100,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 write!(out, "ROM only")?;
             }
             writeln!(out)?;
+
+            write!(out, "ROM Size: ")?;
+            let size = cart.rom_size();
+            if size >= 1024 * 1024 {
+                writeln!(out, "{} MiB", size / 1024 / 1024)?;
+            } else {
+                writeln!(out, "{} KiB", size / 1024)?;
+            }
+
+            write!(out, "RAM Size: ")?;
+            let size = cart.ram_size();
+            if size >= 1024 {
+                writeln!(out, "{} KiB", size / 1024)?;
+            } else {
+                writeln!(out, "0 B")?;
+            }
         }
 
         Commands::CartDump { bytes, path } => {

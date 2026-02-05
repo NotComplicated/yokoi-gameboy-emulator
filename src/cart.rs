@@ -3,14 +3,19 @@ use std::path::Path;
 const ENTRY_POINT: usize = 0x0100;
 const LOGO_START: usize = 0x0104;
 const LOGO_END: usize = 0x0134;
+const CHECKSUM_START: usize = 0x0134;
 const TITLE_START: usize = 0x0134;
 const CGB_FLAG: usize = 0x0143;
 const TITLE_END: usize = 0x0144;
 const NEW_LICENSEE_START: usize = 0x0144;
 const NEW_LICENSEE_END: usize = 0x0146;
 const FEATURES: usize = 0x0147;
+const ROM_SIZE: usize = 0x0148;
+const RAM_SIZE: usize = 0x0149;
 const OLD_LICENSEE: usize = 0x014B;
-const CHECKSUM_END: usize = 0x0150;
+const CHECKSUM_END: usize = 0x014D;
+const CHECKSUM_DIGEST: usize = 0x014D;
+const HEADER_END: usize = 0x0150;
 
 const CGB_COMPAT: u8 = 0x80;
 const CGB_EXCL: u8 = 0xC0;
@@ -63,7 +68,7 @@ pub enum Feature {
 impl Cart {
     pub fn read(path: impl AsRef<Path>) -> Result<Self, Error> {
         let data = std::fs::read(path)?;
-        if data.len() < CHECKSUM_END {
+        if data.len() < HEADER_END {
             Err(Error::Invalid("not enough data"))
         } else if &data[LOGO_START..LOGO_END] != LOGO_BYTES {
             Err(Error::Invalid("missing Nintendo logo"))
@@ -72,7 +77,15 @@ impl Cart {
         {
             Err(Error::Invalid("missing title data"))
         } else {
-            Ok(Self(data))
+            // validate checksum
+            let digest = data[CHECKSUM_START..CHECKSUM_END]
+                .iter()
+                .fold(0u8, |acc, &b| acc.wrapping_sub(b).wrapping_sub(1));
+            if digest != data[CHECKSUM_DIGEST] {
+                Err(Error::Invalid("invalid checksum"))
+            } else {
+                Ok(Self(data))
+            }
         }
     }
 
@@ -97,6 +110,20 @@ impl Cart {
             CGB_COMPAT => ColorSupport::BackwardsCompatible,
             CGB_EXCL => ColorSupport::Exclusive,
             _ => ColorSupport::No,
+        }
+    }
+
+    pub fn rom_size(&self) -> usize {
+        32 * 1024 * 2usize.pow(self.0[ROM_SIZE] as _)
+    }
+
+    pub fn ram_size(&self) -> usize {
+        match self.0[RAM_SIZE] {
+            0x02 => 8 * 1024,
+            0x03 => 32 * 1024,
+            0x04 => 128 * 1024,
+            0x05 => 64 * 1024,
+            _ => 0,
         }
     }
 
