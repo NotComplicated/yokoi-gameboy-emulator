@@ -35,17 +35,21 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let mut out = std::io::stdout().lock();
+
     match cli.command {
         Commands::CartInfo { path } => {
             let cart = yokoi::cart::Cart::read(&path)?;
             write!(out, "Bytes: {}", cart.data().len())?;
         }
+
         Commands::CartDump { bytes, path } => {
             let cart = yokoi::cart::Cart::read(&path)?;
             let width = crossterm::terminal::size()?.0 as usize;
             let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
-            let data = if let Some(n) = bytes {
-                &cart.data()[0..n.min(cart.data().len())]
+            let data = if let Some(n) = bytes
+                && n < cart.data().len()
+            {
+                &cart.data()[0..n]
             } else {
                 cart.data()
             };
@@ -58,5 +62,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
     Ok(())
 }
