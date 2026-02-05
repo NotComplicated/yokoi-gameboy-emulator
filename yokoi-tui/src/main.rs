@@ -38,8 +38,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::CartDump { path } => {
             let cart = yokoi::cart::Cart::read(&path)?;
-            let width = crossterm::terminal::size()?.0;
-            let chunk_size = ((width as usize - "000000:".len()) / 3).next_power_of_two() / 2;
+            let width = crossterm::terminal::size()?.0 as usize;
+            let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
             for (i, chunk) in cart.data().chunks(chunk_size).enumerate() {
                 write!(out, "{:06X}:", i * chunk_size)?;
                 for byte in chunk {
