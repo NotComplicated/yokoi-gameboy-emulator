@@ -51,6 +51,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 format_args!("{len}")
             };
             writeln!(out, "Bytes: {}", field)?;
+
+            write!(
+                out,
+                "Color Support: {}",
+                match cart.color_supported() {
+                    yokoi::cart::ColorSupport::BackwardsCompatible => "Backwards Compatible",
+                    yokoi::cart::ColorSupport::Exclusive => "Exclusive",
+                    _ => "No",
+                }
+            )?;
         }
 
         Commands::CartDump { bytes, path } => {
