@@ -1,5 +1,3 @@
-use enumset::__internal::EnumSetTypeRepr;
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("exhausted all instructions")]
@@ -298,6 +296,12 @@ pub enum Prefixed {
 }
 
 #[derive(Debug)]
+pub enum Duration {
+    Const(u8),
+    Cond(u8, u8),
+}
+
+#[derive(Debug)]
 pub enum FlagMode {
     Op,
     Set,
@@ -307,7 +311,7 @@ pub enum FlagMode {
 
 #[derive(Debug)]
 pub struct Properties {
-    duration: u8,
+    duration: Duration,
     zero: FlagMode,
     subtract: FlagMode,
     half_carry: FlagMode,
@@ -502,6 +506,125 @@ impl Op {
     }
 
     pub fn properties(&self) -> Properties {
-        todo!()
+        macro_rules! props {
+            ($duration:literal, $zero:tt $subtract:tt $half_carry:tt $carry:tt) => {
+                Properties {
+                    duration: Duration::Const($duration),
+                    zero: props!(@flag $zero),
+                    subtract: props!(@flag $subtract),
+                    half_carry: props!(@flag $half_carry),
+                    carry: props!(@flag $carry),
+                }
+            };
+            ($first:literal / $second:literal, $zero:tt $subtract:tt $half_carry:tt $carry:tt) => {
+                Properties {
+                    duration: Duration::Cond($first, $second),
+                    zero: props!(@flag $zero),
+                    subtract: props!(@flag $subtract),
+                    half_carry: props!(@flag $half_carry),
+                    carry: props!(@flag $carry),
+                }
+            };
+            (@flag *) => { FlagMode::Op };
+            (@flag 1) => { FlagMode::Set };
+            (@flag 0) => { FlagMode::Reset };
+            (@flag -) => { FlagMode::Ignore };
+        }
+        match self {
+            Self::Nop => props!(4, - - - -),
+            Self::LdR16N16(_, _) => props!(12, - - - -),
+            Self::LdR16MemA(_) | Self::LdAR16Mem(_) => props!(8, - - - -),
+            Self::LdA16Sp(_) => props!(20, - - - -),
+            Self::IncR16(_) | Self::DecR16(_) => props!(8, - - - -),
+            Self::AddHlR16(_) => props!(8, - 0 * *),
+            Self::IncR8(R8::HlDeref) => props!(12, * 0 * -),
+            Self::IncR8(_) => props!(4, * 0 * -),
+            Self::DecR8(R8::HlDeref) => props!(12, * 1 * -),
+            Self::DecR8(_) => props!(4, * 1 * -),
+            Self::LdR8N8(R8::HlDeref, _) => props!(12, - - - -),
+            Self::LdR8N8(_, _) => props!(8, - - - -),
+            Self::Rlca | Self::Rrca | Self::Rla | Self::Rra => props!(4, 0 0 0 *),
+            Self::Daa => props!(4, * - 0 *),
+            Self::Cpl => props!(4, - 1 1 -),
+            Self::Scf => props!(4, - 0 0 1),
+            Self::Ccf => props!(4, - 0 0 *),
+            Self::JrE8(_) => props!(12, - - - -),
+            Self::JrCondE8(_, _) => props!(12 / 8, - - - -),
+            Self::Stop(_) => props!(4, - - - -),
+            Self::LdR8R8(R8::HlDeref, _) | Self::LdR8R8(_, R8::HlDeref) => props!(8, - - - -),
+            Self::LdR8R8(_, _) => props!(4, - - - -),
+            Self::Halt => props!(4, - - - -),
+            Self::AddR8(R8::HlDeref) => props!(8, * 0 * *),
+            Self::AddR8(_) => props!(4, * 0 * *),
+            Self::AdcR8(R8::HlDeref) => props!(8, * 0 * *),
+            Self::AdcR8(_) => props!(4, * 0 * *),
+            Self::SubR8(R8::HlDeref) => props!(8, * 1 * *),
+            Self::SubR8(R8::A) => props!(4, 1 1 0 0),
+            Self::SubR8(_) => props!(4, * 1 * *),
+            Self::SbcR8(R8::HlDeref) => props!(8, * 1 * *),
+            Self::SbcR8(R8::A) => props!(4, * 1 * -),
+            Self::SbcR8(_) => props!(4, * 1 * *),
+            Self::AndR8(R8::HlDeref) => props!(8, * 0 1 0),
+            Self::AndR8(_) => props!(4, * 0 1 0),
+            Self::XorR8(R8::HlDeref) => props!(8, * 0 0 0),
+            Self::XorR8(R8::A) => props!(4, 1 0 0 0),
+            Self::XorR8(_) => props!(4, * 0 0 0),
+            Self::OrR8(R8::HlDeref) => props!(8, * 0 0 0),
+            Self::OrR8(_) => props!(4, * 0 0 0),
+            Self::CpR8(R8::HlDeref) => props!(8, * 1 * *),
+            Self::CpR8(R8::A) => props!(4, 1 1 0 0),
+            Self::CpR8(_) => props!(4, * 1 * *),
+            Self::AddN8(_) | Self::AdcN8(_) => props!(8, - 0 - -),
+            Self::SubN8(_) | Self::SbcN8(_) => props!(8, - 1 - -),
+            Self::AndN8(_) => props!(8, - 0 1 0),
+            Self::XorN8(_) | Self::OrN8(_) => props!(8, - 0 0 0),
+            Self::CpN8(_) => props!(8, - 1 - -),
+            Self::RetCond(_) => props!(20 / 8, - - - -),
+            Self::Ret | Self::Reti => props!(16, - - - -),
+            Self::JpCondA16(_, _) => props!(16 / 12, - - - -),
+            Self::JpA16(_) => props!(16, - - - -),
+            Self::JpHl => props!(4, - - - -),
+            Self::CallCondA16(_, _) => props!(24 / 12, - - - -),
+            Self::CallA16(_) => props!(24, - - - -),
+            Self::Rst(_) => props!(16, - - - -),
+            Self::Pop(R16Stk::Af) => props!(12, * * * *),
+            Self::Pop(_) => props!(12, - - - -),
+            Self::Push(_) => props!(16, - - - -),
+            Self::Prefix(prefixed, R8::HlDeref) => match prefixed {
+                Prefixed::Rlc
+                | Prefixed::Rrc
+                | Prefixed::Rl
+                | Prefixed::Rr
+                | Prefixed::Sla
+                | Prefixed::Sra
+                | Prefixed::Srl => props!(16, * 0 0 *),
+                Prefixed::Swap => props!(16, * 0 0 0),
+                Prefixed::Bit(_) => props!(12, * 0 1 -),
+                Prefixed::Res(_) | Prefixed::Set(_) => props!(16, - - - -),
+            },
+            Self::Prefix(prefixed, _) => match prefixed {
+                Prefixed::Rlc
+                | Prefixed::Rrc
+                | Prefixed::Rl
+                | Prefixed::Rr
+                | Prefixed::Sla
+                | Prefixed::Sra
+                | Prefixed::Srl => props!(8, * 0 0 *),
+                Prefixed::Swap => props!(8, * 0 0 0),
+                Prefixed::Bit(_) => props!(8, * 0 1 -),
+                Prefixed::Res(_) | Prefixed::Set(_) => props!(8, - - - -),
+            },
+            Self::LdhCA => props!(8, - - - -),
+            Self::LdhA8A(_) => props!(12, - - - -),
+            Self::LdA16A(_) => props!(16, - - - -),
+            Self::LdhAC => props!(8, - - - -),
+            Self::LdhAA8(_) => props!(12, - - - -),
+            Self::LdAA16(_) => props!(16, - - - -),
+            Self::AddSpE8(_) => props!(16, 0 0 * *),
+            Self::LdHlSpPlusE8(_) => props!(12, 0 0 * *),
+            Self::LdSpHl => props!(8, - - - -),
+            Self::Di => props!(4, - - - -),
+            Self::Ei => props!(4, - - - -),
+        }
     }
 }
