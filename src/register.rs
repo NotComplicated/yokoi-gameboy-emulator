@@ -1,7 +1,7 @@
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug)]
-pub enum Reg {
+pub enum Register {
     A,
     F,
     B,
@@ -13,7 +13,7 @@ pub enum Reg {
 }
 
 #[derive(Debug)]
-pub enum DblReg {
+pub enum DblRegister {
     AF,
     BC,
     DE,
@@ -98,60 +98,60 @@ impl RegisterSet {
     }
 }
 
-impl Index<Reg> for RegisterSet {
+impl Index<Register> for RegisterSet {
     type Output = u8;
 
-    fn index(&self, register: Reg) -> &Self::Output {
+    fn index(&self, register: Register) -> &Self::Output {
         match register {
-            Reg::A => self.a(),
-            Reg::F => self.f(),
-            Reg::B => self.b(),
-            Reg::C => self.c(),
-            Reg::D => self.d(),
-            Reg::E => self.e(),
-            Reg::H => self.h(),
-            Reg::L => self.l(),
+            Register::A => self.a(),
+            Register::F => self.f(),
+            Register::B => self.b(),
+            Register::C => self.c(),
+            Register::D => self.d(),
+            Register::E => self.e(),
+            Register::H => self.h(),
+            Register::L => self.l(),
         }
     }
 }
 
-impl IndexMut<Reg> for RegisterSet {
-    fn index_mut(&mut self, register: Reg) -> &mut Self::Output {
+impl IndexMut<Register> for RegisterSet {
+    fn index_mut(&mut self, register: Register) -> &mut Self::Output {
         match register {
-            Reg::A => self.a_mut(),
-            Reg::F => self.f_mut(),
-            Reg::B => self.b_mut(),
-            Reg::C => self.c_mut(),
-            Reg::D => self.d_mut(),
-            Reg::E => self.e_mut(),
-            Reg::H => self.h_mut(),
-            Reg::L => self.l_mut(),
+            Register::A => self.a_mut(),
+            Register::F => self.f_mut(),
+            Register::B => self.b_mut(),
+            Register::C => self.c_mut(),
+            Register::D => self.d_mut(),
+            Register::E => self.e_mut(),
+            Register::H => self.h_mut(),
+            Register::L => self.l_mut(),
         }
     }
 }
 
-impl Index<DblReg> for RegisterSet {
+impl Index<DblRegister> for RegisterSet {
     type Output = u16;
 
-    fn index(&self, register: DblReg) -> &Self::Output {
+    fn index(&self, register: DblRegister) -> &Self::Output {
         match register {
-            DblReg::AF => &self.af,
-            DblReg::BC => &self.bc,
-            DblReg::DE => &self.de,
-            DblReg::HL => &self.hl,
-            DblReg::SP => &self.sp,
+            DblRegister::AF => &self.af,
+            DblRegister::BC => &self.bc,
+            DblRegister::DE => &self.de,
+            DblRegister::HL => &self.hl,
+            DblRegister::SP => &self.sp,
         }
     }
 }
 
-impl IndexMut<DblReg> for RegisterSet {
-    fn index_mut(&mut self, register: DblReg) -> &mut Self::Output {
+impl IndexMut<DblRegister> for RegisterSet {
+    fn index_mut(&mut self, register: DblRegister) -> &mut Self::Output {
         match register {
-            DblReg::AF => &mut self.af,
-            DblReg::BC => &mut self.bc,
-            DblReg::DE => &mut self.de,
-            DblReg::HL => &mut self.hl,
-            DblReg::SP => &mut self.sp,
+            DblRegister::AF => &mut self.af,
+            DblRegister::BC => &mut self.bc,
+            DblRegister::DE => &mut self.de,
+            DblRegister::HL => &mut self.hl,
+            DblRegister::SP => &mut self.sp,
         }
     }
 }
