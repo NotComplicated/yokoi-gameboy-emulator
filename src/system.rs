@@ -11,6 +11,12 @@ pub struct System<F: Frontend> {
     memory: Memory,
 }
 
+#[derive(Debug)]
+pub enum Mode {
+    Dmg,
+    Gbc,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error<FE> {
     Frontend(FE),
@@ -19,10 +25,11 @@ pub enum Error<FE> {
 
 impl<F: Frontend> System<F> {
     pub fn init(frontend: F, boot_rom: Vec<u8>) -> Self {
+        let mode = Mode::Dmg;
         Self {
             frontend,
-            reg_set: RegisterSet::init(),
-            memory: Memory::init(boot_rom),
+            reg_set: RegisterSet::init(mode),
+            memory: Memory::init(boot_rom, mode),
         }
     }
 

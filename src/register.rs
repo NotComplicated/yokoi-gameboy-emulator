@@ -1,3 +1,5 @@
+use crate::system::Mode;
+
 #[derive(Debug)]
 pub struct RegisterSet {
     pub a: u8,
@@ -13,8 +15,8 @@ pub struct RegisterSet {
 }
 
 impl RegisterSet {
-    pub fn init() -> Self {
-        Self {
+    pub fn init(mode: Mode) -> Self {
+        let mut reg_set = Self {
             a: 0,
             f: 0,
             b: 0,
@@ -23,9 +25,24 @@ impl RegisterSet {
             e: 0,
             h: 0,
             l: 0,
-            sp: 0,
-            pc: 0,
+            sp: 0xfffe,
+            pc: 0x0100,
+        };
+        match mode {
+            Mode::Dmg => {
+                reg_set.set_af(0x01b0);
+                reg_set.set_bc(0x0013);
+                reg_set.set_de(0x00d8);
+                reg_set.set_hl(0x014d);
+            }
+            Mode::Gbc => {
+                reg_set.set_af(0x1180);
+                reg_set.set_bc(0x0000);
+                reg_set.set_de(0xff56);
+                reg_set.set_hl(0x000d);
+            }
         }
+        reg_set
     }
 
     pub fn af(&self) -> u16 {
