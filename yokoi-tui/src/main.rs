@@ -26,19 +26,35 @@ enum Commands {
     },
 }
 
-fn main() {
-    if let Err(err) = run() {
-        eprintln!("{err}");
+enum Error {
+    Io(std::io::Error),
+    Cart(yokoi::cart::Error),
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    match run() {
+        Ok(()) => {}
+        Err(Error::Io(err)) => eprintln!("Error: {err}"),
+        Err(Error::Cart(yokoi::cart::Error::Io(err))) => eprintln!("Error reading cart: {err}"),
+        Err(Error::Cart(yokoi::cart::Error::Invalid(err))) => {
+            eprintln!("Invalid cart: {err}")
+        }
+    }
+}
+
+fn run() -> Result<(), Error> {
     let cli = Cli::parse();
     let mut out = std::io::stdout().lock();
 
     match cli.command {
         Commands::CartInfo { path } => {
-            let cart = yokoi::cart::Cart::read(&path)?;
+            let cart = yokoi::cart::Cart::read(&path).map_err(Error::Cart)?;
 
             writeln!(out, "Title: {}", cart.title())?;
 
@@ -119,7 +135,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::CartDump { bytes, path } => {
-            let cart = yokoi::cart::Cart::read(&path)?;
+            let cart = yokoi::cart::Cart::read(&path).map_err(Error::Cart)?;
             let width = crossterm::terminal::size()?.0 as usize;
             let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
             let data = if let Some(n) = bytes

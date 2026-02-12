@@ -16,10 +16,9 @@ pub enum Mode {
     Gbc,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("{0}")]
-    Memory(#[from] memory::Error),
+    Memory(memory::Error),
 }
 
 impl System {

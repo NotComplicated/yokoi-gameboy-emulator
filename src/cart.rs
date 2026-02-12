@@ -31,11 +31,9 @@ const LOGO_BYTES: &[u8] = &[
 #[derive(Debug)]
 pub struct Cart(Vec<u8>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("Errored while reading cartridge file: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Invalid cartridge file: {0}")]
+    Io(std::io::Error),
     Invalid(&'static str),
 }
 
@@ -68,7 +66,7 @@ pub enum Feature {
 
 impl Cart {
     pub fn read(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let data = std::fs::read(path)?;
+        let data = std::fs::read(path).map_err(Error::Io)?;
         if data.len() < HEADER_END {
             Err(Error::Invalid("not enough data"))
         } else if &data[LOGO_START..LOGO_END] != LOGO_BYTES {

@@ -1,8 +1,6 @@
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("exhausted all instructions")]
     Exhausted,
-    #[error("invalid instruction encountered")]
     Invalid,
 }
 

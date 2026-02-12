@@ -21,10 +21,9 @@ pub struct Memory {
 #[derive(Debug)]
 pub struct Rom;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("during op read: {0}")]
-    Op(#[from] opcode::Error),
+    Op(opcode::Error),
 }
 
 impl Memory {
