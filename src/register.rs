@@ -1,157 +1,62 @@
-use std::ops::{Index, IndexMut};
-
-#[derive(Debug)]
-pub enum Register {
-    A,
-    F,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-}
-
-#[derive(Debug)]
-pub enum DblRegister {
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-}
-
-// big-endian
 #[derive(Debug)]
 pub struct RegisterSet {
-    pub af: u16,
-    pub bc: u16,
-    pub de: u16,
-    pub hl: u16,
+    pub a: u8,
+    pub f: u8,
+    pub b: u8,
+    pub c: u8,
+    pub d: u8,
+    pub e: u8,
+    pub h: u8,
+    pub l: u8,
     pub sp: u16,
     pub pc: u16,
 }
 
 impl RegisterSet {
-    pub fn a(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.af)[0]
-    }
-
-    pub fn a_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.af)[0]
-    }
-
-    pub fn f(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.af)[1]
-    }
-
-    pub fn f_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.af)[1]
-    }
-
-    pub fn b(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.bc)[0]
-    }
-
-    pub fn b_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.bc)[0]
-    }
-
-    pub fn c(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.bc)[1]
-    }
-
-    pub fn c_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.bc)[1]
-    }
-
-    pub fn d(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.de)[0]
-    }
-
-    pub fn d_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.de)[0]
-    }
-
-    pub fn e(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.de)[1]
-    }
-
-    pub fn e_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.de)[1]
-    }
-
-    pub fn h(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.hl)[0]
-    }
-
-    pub fn h_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.hl)[0]
-    }
-
-    pub fn l(&self) -> &u8 {
-        &bytemuck::bytes_of(&self.hl)[1]
-    }
-
-    pub fn l_mut(&mut self) -> &mut u8 {
-        &mut bytemuck::bytes_of_mut(&mut self.hl)[1]
-    }
-}
-
-impl Index<Register> for RegisterSet {
-    type Output = u8;
-
-    fn index(&self, register: Register) -> &Self::Output {
-        match register {
-            Register::A => self.a(),
-            Register::F => self.f(),
-            Register::B => self.b(),
-            Register::C => self.c(),
-            Register::D => self.d(),
-            Register::E => self.e(),
-            Register::H => self.h(),
-            Register::L => self.l(),
+    pub fn init() -> Self {
+        Self {
+            a: 0,
+            f: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+            h: 0,
+            l: 0,
+            sp: 0,
+            pc: 0,
         }
     }
-}
 
-impl IndexMut<Register> for RegisterSet {
-    fn index_mut(&mut self, register: Register) -> &mut Self::Output {
-        match register {
-            Register::A => self.a_mut(),
-            Register::F => self.f_mut(),
-            Register::B => self.b_mut(),
-            Register::C => self.c_mut(),
-            Register::D => self.d_mut(),
-            Register::E => self.e_mut(),
-            Register::H => self.h_mut(),
-            Register::L => self.l_mut(),
-        }
+    pub fn af(&self) -> u16 {
+        u16::from_be_bytes([self.a, self.f])
     }
-}
 
-impl Index<DblRegister> for RegisterSet {
-    type Output = u16;
-
-    fn index(&self, register: DblRegister) -> &Self::Output {
-        match register {
-            DblRegister::AF => &self.af,
-            DblRegister::BC => &self.bc,
-            DblRegister::DE => &self.de,
-            DblRegister::HL => &self.hl,
-            DblRegister::SP => &self.sp,
-        }
+    pub fn bc(&self) -> u16 {
+        u16::from_be_bytes([self.b, self.c])
     }
-}
 
-impl IndexMut<DblRegister> for RegisterSet {
-    fn index_mut(&mut self, register: DblRegister) -> &mut Self::Output {
-        match register {
-            DblRegister::AF => &mut self.af,
-            DblRegister::BC => &mut self.bc,
-            DblRegister::DE => &mut self.de,
-            DblRegister::HL => &mut self.hl,
-            DblRegister::SP => &mut self.sp,
-        }
+    pub fn de(&self) -> u16 {
+        u16::from_be_bytes([self.d, self.e])
+    }
+
+    pub fn hl(&self) -> u16 {
+        u16::from_be_bytes([self.h, self.l])
+    }
+
+    pub fn set_af(&mut self, af: u16) {
+        [self.a, self.f] = af.to_be_bytes();
+    }
+
+    pub fn set_bc(&mut self, bc: u16) {
+        [self.b, self.c] = bc.to_be_bytes();
+    }
+
+    pub fn set_de(&mut self, de: u16) {
+        [self.d, self.e] = de.to_be_bytes();
+    }
+
+    pub fn set_hl(&mut self, hl: u16) {
+        [self.h, self.l] = hl.to_be_bytes();
     }
 }

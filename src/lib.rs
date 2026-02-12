@@ -1,3 +1,7 @@
+mod memory;
+mod opcode;
+mod register;
+
 pub mod cart;
-pub mod opcode;
-pub mod register;
+pub mod frontend;
+pub mod system;
