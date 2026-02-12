@@ -1,12 +1,11 @@
 use crate::{
     cart::Cart,
-    frontend::Frontend,
+    frame::Frame,
     memory::{self, Memory},
     register::RegisterSet,
 };
 
-pub struct System<F: Frontend> {
-    frontend: F,
+pub struct System {
     reg_set: RegisterSet,
     memory: Memory,
 }
@@ -18,27 +17,21 @@ pub enum Mode {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error<FE> {
-    Frontend(FE),
+pub enum Error {
+    #[error("{0}")]
     Memory(#[from] memory::Error),
 }
 
-impl<F: Frontend> System<F> {
-    pub fn init(frontend: F, boot_rom: Vec<u8>) -> Self {
+impl System {
+    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Self {
         let mode = Mode::Dmg;
         Self {
-            frontend,
-            reg_set: RegisterSet::init(mode),
-            memory: Memory::init(boot_rom, mode),
+            reg_set: Default::default(),
+            memory: Memory::init(boot_rom, cart, mode),
         }
     }
 
-    pub fn run(&mut self, cart: Cart) -> Result<(), Error<F::Error>> {
-        self.memory.load_cart(cart);
-        for tick in 0.. {
-            let byte = self.memory.read(self.reg_set.pc)?;
-        }
-
-        Ok(())
+    pub fn next_frame(&mut self) -> Result<Frame, Error> {
+        Ok(todo!())
     }
 }

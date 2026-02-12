@@ -8,7 +8,7 @@ use crate::{
 pub struct Memory {
     mode: Mode,
     boot_rom: Vec<u8>,
-    cart: Option<Cart>,
+    cart: Cart,
     rom: Rom,
     vram: [u8; 8 * 1024],
     sram: [u8; 8 * 1024],
@@ -28,11 +28,11 @@ pub enum Error {
 }
 
 impl Memory {
-    pub fn init(boot_rom: Vec<u8>, mode: Mode) -> Self {
+    pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
         Self {
             mode,
             boot_rom,
-            cart: None,
+            cart,
             rom: Rom,
             vram: [0; _],
             sram: [0; _],
@@ -41,10 +41,6 @@ impl Memory {
             oam: [0; _],
             hram: [0; _],
         }
-    }
-
-    pub fn load_cart(&mut self, cart: Cart) {
-        self.cart = Some(cart);
     }
 
     pub fn read(&self, addr: u16) -> Result<u8, Error> {
