@@ -41,10 +41,7 @@ fn main() {
     match run() {
         Ok(()) => {}
         Err(Error::Io(err)) => eprintln!("Error: {err}"),
-        Err(Error::Cart(yokoi::cart::Error::Io(err))) => eprintln!("Error reading cart: {err}"),
-        Err(Error::Cart(yokoi::cart::Error::Invalid(err))) => {
-            eprintln!("Invalid cart: {err}")
-        }
+        Err(Error::Cart(yokoi::cart::Error(err))) => eprintln!("Error while parsing cart: {err}"),
     }
 }
 
@@ -54,7 +51,8 @@ fn run() -> Result<(), Error> {
 
     match cli.command {
         Commands::CartInfo { path } => {
-            let cart = yokoi::cart::Cart::read(&path).map_err(Error::Cart)?;
+            let data = std::fs::read(&path)?;
+            let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
 
             writeln!(out, "Title: {}", cart.title())?;
 
@@ -135,7 +133,8 @@ fn run() -> Result<(), Error> {
         }
 
         Commands::CartDump { bytes, path } => {
-            let cart = yokoi::cart::Cart::read(&path).map_err(Error::Cart)?;
+            let data = std::fs::read(&path)?;
+            let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
             let width = crossterm::terminal::size()?.0 as usize;
             let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
             let data = if let Some(n) = bytes

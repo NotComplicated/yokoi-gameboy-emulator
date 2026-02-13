@@ -32,10 +32,7 @@ const LOGO_BYTES: &[u8] = &[
 pub struct Cart(Vec<u8>);
 
 #[derive(Debug)]
-pub enum Error {
-    Io(std::io::Error),
-    Invalid(&'static str),
-}
+pub struct Error(pub &'static str);
 
 #[derive(Debug)]
 pub enum ColorSupport {
@@ -44,7 +41,7 @@ pub enum ColorSupport {
     No,
 }
 
-#[derive(enumset::EnumSetType, Debug)]
+#[derive(Debug)]
 pub enum Feature {
     Mbc1,
     Mbc2,
@@ -65,23 +62,22 @@ pub enum Feature {
 }
 
 impl Cart {
-    pub fn read(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let data = std::fs::read(path).map_err(Error::Io)?;
+    pub fn new(data: Vec<u8>) -> Result<Self, Error> {
         if data.len() < HEADER_END {
-            Err(Error::Invalid("not enough data"))
+            Err(Error("not enough data"))
         } else if &data[LOGO_START..LOGO_END] != LOGO_BYTES {
-            Err(Error::Invalid("missing Nintendo logo"))
+            Err(Error("missing Nintendo logo"))
         } else if !(data[TITLE_START..TITLE_END - 1].iter().all(u8::is_ascii)
             && (data[CGB_FLAG].is_ascii() || [CGB_COMPAT, CGB_EXCL].contains(&data[CGB_FLAG])))
         {
-            Err(Error::Invalid("missing title data"))
+            Err(Error("missing title data"))
         } else {
             // validate checksum
             let digest = data[CHECKSUM_START..CHECKSUM_END]
                 .iter()
                 .fold(0u8, |acc, &b| acc.wrapping_sub(b).wrapping_sub(1));
             if digest != data[CHECKSUM_DIGEST] {
-                Err(Error::Invalid("invalid checksum"))
+                Err(Error("invalid checksum"))
             } else {
                 Ok(Self(data))
             }
@@ -126,36 +122,50 @@ impl Cart {
         }
     }
 
-    pub fn features(&self) -> enumset::EnumSet<Feature> {
+    pub fn features(&self) -> &'static [Feature] {
         match self.0[FEATURES] {
-            0x01 => Feature::Mbc1.into(),
-            0x02 => Feature::Mbc1 | Feature::Ram,
-            0x03 => Feature::Mbc1 | Feature::Ram | Feature::Battery,
-            0x05 => Feature::Mbc2.into(),
-            0x06 => Feature::Mbc2 | Feature::Battery,
-            0x0B => Feature::Mmm01.into(),
-            0x0C => Feature::Mmm01 | Feature::Ram,
-            0x0D => Feature::Mmm01 | Feature::Ram | Feature::Battery,
-            0x0F => Feature::Mbc3 | Feature::Timer | Feature::Battery,
-            0x10 => Feature::Mbc3 | Feature::Timer | Feature::Ram | Feature::Battery,
-            0x11 => Feature::Mbc3.into(),
-            0x12 => Feature::Mbc3 | Feature::Ram,
-            0x13 => Feature::Mbc3 | Feature::Ram | Feature::Battery,
-            0x19 => Feature::Mbc5.into(),
-            0x1A => Feature::Mbc5 | Feature::Ram,
-            0x1B => Feature::Mbc5 | Feature::Ram | Feature::Battery,
-            0x1C => Feature::Mbc5 | Feature::Rumble,
-            0x1D => Feature::Mbc5 | Feature::Rumble | Feature::Ram,
-            0x1E => Feature::Mbc5 | Feature::Rumble | Feature::Ram | Feature::Battery,
-            0x20 => Feature::Mbc6.into(),
-            0x22 => {
-                Feature::Mbc7 | Feature::Sensor | Feature::Rumble | Feature::Ram | Feature::Battery
-            }
-            0xFC => Feature::Camera.into(),
-            0xFD => Feature::Tamagotchi.into(),
-            0xFE => Feature::HuC3.into(),
-            0xFF => Feature::HuC1 | Feature::Ram | Feature::Battery,
-            _ => Default::default(),
+            0x01 => &[Feature::Mbc1],
+            0x02 => &[Feature::Mbc1, Feature::Ram],
+            0x03 => &[Feature::Mbc1, Feature::Ram, Feature::Battery],
+            0x05 => &[Feature::Mbc2],
+            0x06 => &[Feature::Mbc2, Feature::Battery],
+            0x0B => &[Feature::Mmm01],
+            0x0C => &[Feature::Mmm01, Feature::Ram],
+            0x0D => &[Feature::Mmm01, Feature::Ram, Feature::Battery],
+            0x0F => &[Feature::Mbc3, Feature::Timer, Feature::Battery],
+            0x10 => &[
+                Feature::Mbc3,
+                Feature::Timer,
+                Feature::Ram,
+                Feature::Battery,
+            ],
+            0x11 => &[Feature::Mbc3],
+            0x12 => &[Feature::Mbc3, Feature::Ram],
+            0x13 => &[Feature::Mbc3, Feature::Ram, Feature::Battery],
+            0x19 => &[Feature::Mbc5],
+            0x1A => &[Feature::Mbc5, Feature::Ram],
+            0x1B => &[Feature::Mbc5, Feature::Ram, Feature::Battery],
+            0x1C => &[Feature::Mbc5, Feature::Rumble],
+            0x1D => &[Feature::Mbc5, Feature::Rumble, Feature::Ram],
+            0x1E => &[
+                Feature::Mbc5,
+                Feature::Rumble,
+                Feature::Ram,
+                Feature::Battery,
+            ],
+            0x20 => &[Feature::Mbc6],
+            0x22 => &[
+                Feature::Mbc7,
+                Feature::Sensor,
+                Feature::Rumble,
+                Feature::Ram,
+                Feature::Battery,
+            ],
+            0xFC => &[Feature::Camera],
+            0xFD => &[Feature::Tamagotchi],
+            0xFE => &[Feature::HuC3],
+            0xFF => &[Feature::HuC1, Feature::Ram, Feature::Battery],
+            _ => &[],
         }
     }
 
