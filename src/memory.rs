@@ -4,6 +4,75 @@ use crate::{
     system::Mode,
 };
 
+const ROM_BANK_0_START: u16 = 0x0000;
+const ROM_BANK_N_START: u16 = 0x4000;
+const VRAM_START: u16 = 0x8000;
+const SRAM_START: u16 = 0xA000;
+const WRAM_BANK_0_START: u16 = 0xC000;
+const WRAM_BANK_N_START: u16 = 0xD000;
+const ERAM_START: u16 = 0xE000;
+const OAM_START: u16 = 0xFE00;
+const OAM_END: u16 = 0xFEA0;
+const WAVE_PAT_START: u16 = 0xFF30;
+const WAVE_PAT_END: u16 = 0xFF40;
+const HRAM_START: u16 = 0xFF80;
+const HRAM_END: u16 = 0xFFFF;
+
+const JOYPAD_REG: u16 = 0xFF00;
+const SERIAL_0_REG: u16 = 0xFF01;
+const SERIAL_1_REG: u16 = 0xFF02;
+const INTERRUPTS_REG: u16 = 0xFF0F;
+const CH1_SWEEP_REG: u16 = 0xFF10;
+const CH1_DUTY_LENGTH_REG: u16 = 0xFF11;
+const CH1_VOLUME_ENV_REG: u16 = 0xFF12;
+const CH1_PERIOD_LOW_REG: u16 = 0xFF13;
+const CH1_PERIOD_HIGH_CTRL_REG: u16 = 0xFF14;
+const CH2_DUTY_LENGTH_REG: u16 = 0xFF16;
+const CH2_VOLUME_ENV_REG: u16 = 0xFF17;
+const CH2_PERIOD_LOW_REG: u16 = 0xFF18;
+const CH2_PERIOD_HIGH_CTRL_REG: u16 = 0xFF19;
+const CH3_DAC_REG: u16 = 0xFF1A;
+const CH3_LENGTH_REG: u16 = 0xFF1B;
+const CH3_OUTPUT_LEVEL_REG: u16 = 0xFF1C;
+const CH3_PERIOD_LOW_REG: u16 = 0xFF1D;
+const CH3_PERIOD_HIGH_CTRL_REG: u16 = 0xFF1E;
+const CH4_LENGTH_REG: u16 = 0xFF20;
+const CH4_VOLUME_ENV_REG: u16 = 0xFF21;
+const CH4_FREQ_RAND_REG: u16 = 0xFF22;
+const CH4_CTRL_REG: u16 = 0xFF23;
+const VIN_VOLUME_REG: u16 = 0xFF24;
+const PANNING_REG: u16 = 0xFF25;
+const AUDIO_MASTER_REG: u16 = 0xFF26;
+const LCD_CTRL_REG: u16 = 0xFF40;
+const LCD_STAT_REG: u16 = 0xFF41;
+const SCROLL_Y_REG: u16 = 0xFF42;
+const SCROLL_X_REG: u16 = 0xFF43;
+const LY_REG: u16 = 0xFF44;
+const LYC_REG: u16 = 0xFF45;
+const BG_PALETTE_REG: u16 = 0xFF47;
+const OBJ_PALETTE_0_REG: u16 = 0xFF48;
+const OBJ_PALETTE_1_REG: u16 = 0xFF49;
+const WINDOW_Y_REG: u16 = 0xFF4A;
+const WINDOW_X_REG: u16 = 0xFF4B;
+const OAM_DMA_REG: u16 = 0xFF46;
+const KEY0_REG: u16 = 0xFF4C;
+const KEY1_REG: u16 = 0xFF4D;
+const VRAM_BANK_REG: u16 = 0xFF4F;
+const BOOT_ROM_MAP_REG: u16 = 0xFF50;
+const VRAM_DMA_SRC_0_REG: u16 = 0xFF51;
+const VRAM_DMA_SRC_1_REG: u16 = 0xFF52;
+const VRAM_DMA_DEST_0_REG: u16 = 0xFF53;
+const VRAM_DMA_DEST_1_REG: u16 = 0xFF54;
+const VRAM_DMA_CTRL_REG: u16 = 0xFF55;
+const IR_PORT_REG: u16 = 0xFF56;
+const BG_COLOR_PALETTE_SPEC_REG: u16 = 0xFF68;
+const BG_COLOR_PALETTE_DATA_REG: u16 = 0xFF69;
+const OBJ_COLOR_PALETTE_SPEC_REG: u16 = 0xFF6A;
+const OBJ_COLOR_PALETTE_DATA_REG: u16 = 0xFF6B;
+const OBJ_PRIORITY_MODE_REG: u16 = 0xFF6C;
+const WRAM_BANK_REG: u16 = 0xFF70;
+const IE_REG: u16 = 0xFFFF;
+
 type Sram = Box<[u8; 8 * 1024]>;
 
 #[derive(Debug)]
