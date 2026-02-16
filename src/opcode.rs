@@ -123,7 +123,7 @@ impl Cond {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct N8(u8);
+pub struct N8(pub u8);
 
 impl N8 {
     fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
@@ -137,7 +137,7 @@ impl N8 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct N16(u16);
+pub struct N16(pub u16);
 
 impl N16 {
     fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
@@ -151,7 +151,7 @@ impl N16 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct A8(u8);
+pub struct A8(pub u8);
 
 impl A8 {
     fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
@@ -165,7 +165,7 @@ impl A8 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct A16(u16);
+pub struct A16(pub u16);
 
 impl A16 {
     fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
@@ -179,7 +179,7 @@ impl A16 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct E8(i8);
+pub struct E8(pub i8);
 
 impl E8 {
     fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
@@ -193,7 +193,7 @@ impl E8 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct B3(u8);
+pub struct B3(pub u8);
 
 impl B3 {
     fn from_543(opcode: u8) -> Self {
@@ -203,7 +203,7 @@ impl B3 {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct Tgt3(u8);
+pub struct Tgt3(pub u8);
 
 impl Tgt3 {
     fn from_543(opcode: u8) -> Self {
