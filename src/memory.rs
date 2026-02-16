@@ -334,6 +334,12 @@ impl Memory {
         }
 
         match addr {
+            ROM_BANK_0_START..ROM_BANK_N_START
+                if (addr as usize) < self.boot_rom.len() && self.read(BOOT_ROM_CTRL_REG)? != 0 =>
+            {
+                Ok(&self.boot_rom[addr.into()..])
+            }
+
             ROM_BANK_0_START..ROM_BANK_N_START => match self.mbc {
                 Mbc::One {
                     rom_bank_reg,
