@@ -4,7 +4,7 @@ pub enum Error {
     Invalid,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum R8 {
     B = 0b000,
@@ -37,7 +37,7 @@ impl R8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum R16 {
     Bc = 0b00,
@@ -79,7 +79,7 @@ impl R16Stk {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum R16Mem {
     Bc = 0b00,
@@ -100,7 +100,7 @@ impl R16Mem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Cond {
     Nz = 0b00,
@@ -121,7 +121,7 @@ impl Cond {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct N8(pub u8);
 
@@ -135,7 +135,7 @@ impl N8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct N16(pub u16);
 
@@ -149,7 +149,7 @@ impl N16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct A8(pub u8);
 
@@ -163,7 +163,7 @@ impl A8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct A16(pub u16);
 
@@ -177,7 +177,7 @@ impl A16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct E8(pub i8);
 
@@ -191,7 +191,7 @@ impl E8 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct B3(pub u8);
 
@@ -201,7 +201,7 @@ impl B3 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct Tgt3(pub u8);
 

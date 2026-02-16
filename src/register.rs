@@ -44,4 +44,40 @@ impl RegisterSet {
     pub fn set_hl(&mut self, hl: u16) {
         [self.h, self.l] = hl.to_be_bytes();
     }
+
+    pub fn zero(&self) -> bool {
+        self.f & 0b10000000 != 0
+    }
+
+    pub fn sub(&self) -> bool {
+        self.f & 0b01000000 != 0
+    }
+
+    pub fn half_carry(&self) -> bool {
+        self.f & 0b00100000 != 0
+    }
+
+    pub fn carry(&self) -> bool {
+        self.f & 0b00010000 != 0
+    }
+
+    pub fn set_zero(&mut self, set: bool) {
+        self.set_flag(set, 0b10000000);
+    }
+
+    pub fn set_sub(&mut self, set: bool) {
+        self.set_flag(set, 0b01000000);
+    }
+
+    pub fn set_half_carry(&mut self, set: bool) {
+        self.set_flag(set, 0b00100000);
+    }
+
+    pub fn set_carry(&mut self, set: bool) {
+        self.set_flag(set, 0b00010000);
+    }
+
+    fn set_flag(&mut self, set: bool, mask: u8) {
+        self.f = (self.f & !mask) + if set { mask } else { 0 };
+    }
 }
