@@ -131,6 +131,7 @@ enum Mbc {
     Three {
         rom_bank_reg: u8,
         sram_bank_or_rtc_reg: u8,
+        sram_and_rtc_enabled: bool,
         sram: [Sram; 8],
         latching: bool,
         rtc: [u8; 5],
@@ -255,6 +256,7 @@ impl Memory {
                         break 'mbc Mbc::Three {
                             rom_bank_reg: 0,
                             sram_bank_or_rtc_reg: 0,
+                            sram_and_rtc_enabled: false,
                             sram: std::array::repeat(Sram::new([0; _])),
                             latching: false,
                             rtc: [0; _],
@@ -415,6 +417,10 @@ impl Memory {
                     sram_enabled: false,
                     ..
                 }
+                | Mbc::Three {
+                    sram_and_rtc_enabled: false,
+                    ..
+                }
                 | Mbc::Five {
                     sram_enabled: false,
                     ..
@@ -439,7 +445,7 @@ impl Memory {
                     };
                     Ok(&sram[sram_bank][(addr - SRAM_START).into()..])
                 }
-                Mbc::Two { sram_4bit, .. } => Ok(&sram_4bit[(addr & 511).into()..]),
+                Mbc::Two { sram_4bit, .. } => Ok(&sram_4bit[(addr & 0x01FF).into()..]),
                 Mbc::Three {
                     sram_bank_or_rtc_reg: sram_bank @ 0x00..=0x07,
                     sram,
@@ -546,14 +552,18 @@ impl Memory {
                 let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
                 let palette = (spec & 0b00111000) as usize >> 3;
                 let color = (spec & 0b00000110) as usize >> 1;
-                Ok(&self.lcd.cgb_bg_palettes[palette][color][(spec % 2).into()..])
+                Ok(as_slice(
+                    &self.lcd.cgb_bg_palettes[palette][color][(spec % 2) as usize],
+                ))
             }
             OBJ_COLOR_PALETTE_SPEC_REG => Ok(as_slice(&self.lcd.cgb_obj_palette_spec)),
             OBJ_COLOR_PALETTE_DATA_REG => {
                 let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;
                 let palette = (spec & 0b00111000) as usize >> 3;
                 let color = (spec & 0b00000110) as usize >> 1;
-                Ok(&self.lcd.cgb_obj_palettes[palette][color][(spec % 2).into()..])
+                Ok(as_slice(
+                    &self.lcd.cgb_obj_palettes[palette][color][(spec % 2) as usize],
+                ))
             }
 
             OBJ_PRIORITY_MODE_REG => Ok(as_slice(&self.cgb_obj_priority)),
@@ -574,70 +584,88 @@ impl Memory {
         }
 
         let slice = match addr {
-            // ROM_BANK_0_START..ROM_BANK_N_START => match self.mbc {
-            //     Mbc::One {
-            //         rom_bank_reg,
-            //         rom_bank_reg_mask,
-            //         extended_bank:
-            //             Mbc1ExtBank::Rom {
-            //                 advanced: true,
-            //                 rom_bank_upper_reg,
-            //                 ..
-            //             },
-            //         ..
-            //     } => {
-            //         // MBC1 advanced mode on 1MB+ cart, bank # comes from upper/lower regs
-            //         let rom_bank_lower = rom_bank_reg & rom_bank_reg_mask;
-            //         let rom_bank = (rom_bank_upper_reg << 5) + rom_bank_lower;
-            //         let addr = ((rom_bank as usize) << 14) + addr as usize;
-            //         &mut self.cart.data()[addr..]
-            //     }
-            //     _ => {
-            //         // otherwise, simply read the first ROM bank
-            //         &mut self.cart.data()[addr.into()..]
-            //     }
-            // },
+            ROM_BANK_0_START..VRAM_START => {
+                match &mut self.mbc {
+                    Mbc::One { sram_enabled, .. } if addr < 0x2000 => {
+                        *sram_enabled = data[0] & 0b00001111 == 0x0A;
+                    }
+                    Mbc::One { rom_bank_reg, .. } if addr < 0x4000 => {
+                        *rom_bank_reg = data[0] & 0b00011111;
+                    }
+                    Mbc::One {
+                        extended_bank:
+                            Mbc1ExtBank::Ram {
+                                sram_bank_reg: target,
+                                ..
+                            }
+                            | Mbc1ExtBank::Rom {
+                                rom_bank_upper_reg: target,
+                                ..
+                            },
+                        ..
+                    } if addr < 0x6000 => {
+                        *target = data[0] & 0b00000011;
+                    }
+                    Mbc::One {
+                        extended_bank:
+                            Mbc1ExtBank::Ram { advanced, .. } | Mbc1ExtBank::Rom { advanced, .. },
+                        ..
+                    } => {
+                        *advanced = data[0] % 2 == 1;
+                    }
+                    Mbc::Two {
+                        rom_bank_reg,
+                        sram_enabled,
+                        ..
+                    } if addr < 0x4000 => {
+                        if addr & 0x0100 == 0 {
+                            *sram_enabled = data[0] & 0b00001111 == 0x0A;
+                        } else {
+                            *rom_bank_reg = data[0] & 0b00001111;
+                        }
+                    }
+                    Mbc::Three {
+                        sram_and_rtc_enabled,
+                        ..
+                    } if addr < 0x2000 => {
+                        *sram_and_rtc_enabled = data[0] & 0b00001111 == 0x0A;
+                    }
+                    Mbc::Three { rom_bank_reg, .. } if addr < 0x4000 => {
+                        *rom_bank_reg = data[0] & 0b01111111;
+                    }
+                    Mbc::Three {
+                        sram_bank_or_rtc_reg,
+                        ..
+                    } if addr < 0x6000 => {
+                        if data[0] > 0x0C {
+                            panic!("unexpected SRAM bank / RTC register value")
+                        };
+                        *sram_bank_or_rtc_reg = data[0];
+                    }
+                    Mbc::Three { latching, .. } => {
+                        if data[0] == 0x00 {
+                            *latching = true;
+                        } else if data[0] == 0x01 && *latching == true {
+                            *latching = false;
+                        }
+                    }
+                    Mbc::Five { sram_enabled, .. } if addr < 0x2000 => {
+                        *sram_enabled = data[0] & 0b00001111 == 0x0A;
+                    }
+                    Mbc::Five { rom_bank_reg, .. } if addr < 0x3000 => {
+                        *rom_bank_reg = (*rom_bank_reg & 0xF0) + data[0] as u16;
+                    }
+                    Mbc::Five { rom_bank_reg, .. } if addr < 0x4000 => {
+                        *rom_bank_reg = ((data[0] as u16 & 0x01) << 8) + (*rom_bank_reg & 0x0F);
+                    }
+                    Mbc::Five { sram_bank_reg, .. } if addr < 0x6000 => {
+                        *sram_bank_reg = data[0] & 0x0F;
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            }
 
-            // ROM_BANK_N_START..VRAM_START => match &self.mbc {
-            //     Mbc::None { .. } => &mut self.cart.data()[(addr - ROM_BANK_N_START).into()..],
-            //     Mbc::One {
-            //         rom_bank_reg,
-            //         rom_bank_reg_mask,
-            //         extended_bank: Mbc1ExtBank::Ram { .. },
-            //         ..
-            //     } => {
-            //         let addr = (((rom_bank_reg & rom_bank_reg_mask) as usize) << 14)
-            //             + (addr - ROM_BANK_N_START) as usize;
-            //         &mut self.cart.data()[addr..]
-            //     }
-            //     Mbc::One {
-            //         rom_bank_reg,
-            //         rom_bank_reg_mask,
-            //         extended_bank:
-            //             Mbc1ExtBank::Rom {
-            //                 rom_bank_upper_reg, ..
-            //             },
-            //         ..
-            //     } => {
-            //         // bank == 0 check must come *before* mask check
-            //         let rom_bank_lower = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-            //         let rom_bank_lower = rom_bank_lower & rom_bank_reg_mask;
-            //         let rom_bank = (rom_bank_upper_reg << 5) + rom_bank_lower;
-            //         let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-            //         &mut self.cart.data()[addr..]
-            //     }
-            //     Mbc::Two { rom_bank_reg, .. } | Mbc::Three { rom_bank_reg, .. } => {
-            //         let rom_bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-            //         let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-            //         &mut self.cart.data()[addr..]
-            //     }
-            //     Mbc::Five { rom_bank_reg, .. } => {
-            //         // no bank == 0 check here
-            //         let addr =
-            //             ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-            //         &mut self.cart.data()[addr..]
-            //     }
-            // },
             VRAM_START..SRAM_START => match self.mode {
                 Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
                     &mut self.vram_cgb.as_mut().expect("is_some if cgb")
@@ -656,10 +684,14 @@ impl Memory {
                     sram_enabled: false,
                     ..
                 }
+                | Mbc::Three {
+                    sram_and_rtc_enabled: false,
+                    ..
+                }
                 | Mbc::Five {
                     sram_enabled: false,
                     ..
-                } => &mut [0xFF; 16],
+                } => return Ok(()),
                 Mbc::One {
                     extended_bank: Mbc1ExtBank::Rom { sram, .. },
                     ..
@@ -680,7 +712,7 @@ impl Memory {
                     };
                     &mut sram[sram_bank][(addr - SRAM_START).into()..]
                 }
-                Mbc::Two { sram_4bit, .. } => &mut sram_4bit[(addr & 511).into()..],
+                Mbc::Two { sram_4bit, .. } => &mut sram_4bit[(addr & 0x01FF).into()..],
                 Mbc::Three {
                     sram_bank_or_rtc_reg: sram_bank @ 0x00..=0x07,
                     sram,
@@ -711,7 +743,10 @@ impl Memory {
                 },
             },
 
-            // ERAM_START..OAM_START => self.read_inner(addr - (ERAM_START - WRAM_BANK_0_START)),
+            ERAM_START..OAM_START => {
+                return self.write_slice(addr - (ERAM_START - WRAM_BANK_0_START), data);
+            }
+
             OAM_START..OAM_END => &mut self.oam[(addr - OAM_START).into()..],
 
             JOYPAD_REG => as_slice(&mut self.joypad),
@@ -784,16 +819,24 @@ impl Memory {
             BG_COLOR_PALETTE_SPEC_REG => as_slice(&mut self.lcd.cgb_bg_palette_spec),
             BG_COLOR_PALETTE_DATA_REG => {
                 let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
+                if (spec & 0b10000000) != 0 {
+                    // auto-increment
+                    self.write(BG_COLOR_PALETTE_SPEC_REG, spec + 1)?;
+                }
                 let palette = (spec & 0b00111000) as usize >> 3;
                 let color = (spec & 0b00000110) as usize >> 1;
-                &mut self.lcd.cgb_bg_palettes[palette][color][(spec % 2).into()..]
+                as_slice(&mut self.lcd.cgb_bg_palettes[palette][color][(spec % 2) as usize])
             }
             OBJ_COLOR_PALETTE_SPEC_REG => as_slice(&mut self.lcd.cgb_obj_palette_spec),
             OBJ_COLOR_PALETTE_DATA_REG => {
                 let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;
+                if (spec & 0b10000000) != 0 {
+                    // auto-increment
+                    self.write(OBJ_COLOR_PALETTE_SPEC_REG, spec + 1)?;
+                }
                 let palette = (spec & 0b00111000) as usize >> 3;
                 let color = (spec & 0b00000110) as usize >> 1;
-                &mut self.lcd.cgb_obj_palettes[palette][color][(spec % 2).into()..]
+                as_slice(&mut self.lcd.cgb_obj_palettes[palette][color][(spec % 2) as usize])
             }
 
             OBJ_PRIORITY_MODE_REG => as_slice(&mut self.cgb_obj_priority),
