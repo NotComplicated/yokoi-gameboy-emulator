@@ -1,4 +1,5 @@
 use crate::{
+    audio::Audio,
     cart::Cart,
     frame::Frame,
     memory::{self, Memory},
@@ -6,21 +7,47 @@ use crate::{
     register::RegisterSet,
 };
 
-pub struct System {
+pub struct System<FE: Frontend> {
+    frontend: FE,
     reg_set: RegisterSet,
     memory: Memory,
+    state: State,
     ime: bool,
 }
 
+pub trait Frontend {
+    fn play_audio(&self, audio: Audio);
+    fn read_inputs<'buf>(&self, buffer: &'buf mut [Input; 8]) -> &'buf [Input];
+}
+
 #[derive(Debug)]
-pub enum Mode {
-    Dmg,
-    Gbc,
+pub enum Input {
+    Start,
+    Select,
+    Up,
+    Down,
+    Left,
+    Right,
+    A,
+    B,
 }
 
 #[derive(Debug)]
 pub enum Error {
     Memory(memory::Error),
+}
+
+#[derive(Debug)]
+pub(crate) enum Mode {
+    Dmg,
+    Gbc,
+}
+
+#[derive(Debug)]
+enum State {
+    Running,
+    Halted,
+    Stopped,
 }
 
 impl From<memory::Error> for Error {
@@ -29,18 +56,20 @@ impl From<memory::Error> for Error {
     }
 }
 
-impl System {
-    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Self {
+impl<FE: Frontend> System<FE> {
+    pub fn init(frontend: FE, boot_rom: Vec<u8>, cart: Cart) -> Self {
         let mode = Mode::Dmg;
         Self {
+            frontend,
             reg_set: Default::default(),
             memory: Memory::init(boot_rom, cart, mode),
+            state: State::Running,
             ime: false,
         }
     }
 
     pub fn next_frame(&mut self) -> Result<Frame, Error> {
-        Ok(todo!())
+        Ok(Frame)
     }
 
     fn read_r16(&self, r16: R16) -> u16 {
@@ -251,13 +280,9 @@ impl System {
                 self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(..) => {}
-            Op::Stop(_) => {
-                // TODO
-            }
+            Op::Stop(_) => self.state = State::Stopped,
             Op::LdR8R8(r8_src, r8_dest) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
-            Op::Halt => {
-                // TODO
-            }
+            Op::Halt => self.state = State::Halted,
             Op::AddR8(r8) => {
                 let operand = self.read_r8(r8)?;
                 let (result, carry) = self.reg_set.a.overflowing_add(operand);
