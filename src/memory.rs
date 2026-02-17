@@ -1,5 +1,6 @@
 use crate::{
     cart::Cart,
+    frame::Rgb555,
     opcode::{self, Op},
     system::Mode,
 };
@@ -78,7 +79,6 @@ pub const WRAM_BANK_REG: u16 = 0xFF70;
 pub const IE_REG: u16 = 0xFFFF;
 
 type Sram = Box<[u8; 8 * 1024]>;
-type Rgb555 = [u8; 2];
 
 #[derive(Debug)]
 pub struct Memory {

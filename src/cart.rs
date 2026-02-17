@@ -1,5 +1,3 @@
-use std::path::Path;
-
 const ENTRY_POINT: usize = 0x0100;
 const LOGO_START: usize = 0x0104;
 const LOGO_END: usize = 0x0134;

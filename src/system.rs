@@ -1,23 +1,21 @@
 use crate::{
-    audio::Audio,
+    audio::Apu,
     cart::Cart,
     frame::Frame,
     memory::{self, Memory},
     opcode::*,
     register::RegisterSet,
+    render::{self, Ppu},
+    sound::Sound,
 };
 
-pub struct System<FE: Frontend> {
-    frontend: FE,
+pub struct System {
     reg_set: RegisterSet,
     memory: Memory,
+    ppu: Ppu,
+    apu: Apu,
     state: State,
     ime: bool,
-}
-
-pub trait Frontend {
-    fn play_audio(&self, audio: Audio);
-    fn read_inputs<'buf>(&self, buffer: &'buf mut [Input; 8]) -> &'buf [Input];
 }
 
 #[derive(Debug)]
@@ -35,9 +33,10 @@ pub enum Input {
 #[derive(Debug)]
 pub enum Error {
     Memory(memory::Error),
+    Render(render::Error),
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub(crate) enum Mode {
     Dmg,
     Gbc,
@@ -56,20 +55,28 @@ impl From<memory::Error> for Error {
     }
 }
 
-impl<FE: Frontend> System<FE> {
-    pub fn init(frontend: FE, boot_rom: Vec<u8>, cart: Cart) -> Self {
+impl System {
+    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Self {
         let mode = Mode::Dmg;
         Self {
-            frontend,
             reg_set: Default::default(),
             memory: Memory::init(boot_rom, cart, mode),
+            ppu: Ppu::init(mode),
+            apu: Apu::init(),
             state: State::Running,
             ime: false,
         }
     }
 
-    pub fn next_frame(&mut self) -> Result<Frame, Error> {
-        Ok(Frame)
+    pub fn next_frame(&mut self, inputs: &[Input]) -> Result<(Frame, Sound), Error> {
+        loop {
+            let (op, pc) = self.memory.read_op(self.reg_set.pc)?;
+            self.reg_set.pc = pc;
+            self.tick(op)?;
+            if let Some(frame) = self.ppu.tick().map_err(Error::Render)? {
+                break Ok((frame, Sound));
+            }
+        }
     }
 
     fn read_r16(&self, r16: R16) -> u16 {
@@ -134,10 +141,7 @@ impl<FE: Frontend> System<FE> {
         Ok(())
     }
 
-    fn tick(&mut self) -> Result<(), Error> {
-        let (op, pc) = self.memory.read_op(self.reg_set.pc)?;
-        self.reg_set.pc = pc;
-
+    fn tick(&mut self, op: Op) -> Result<(), Error> {
         match op {
             Op::Nop => {}
             Op::LdR16N16(r16, N16(n16)) => self.write_r16(r16, n16),
