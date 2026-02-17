@@ -1,16 +1,15 @@
-use std::ops::Shl;
-
 use crate::{
     cart::Cart,
     frame::Frame,
     memory::{self, Memory},
-    opcode::{A16, Cond, E8, N8, N16, Op, R8, R16, R16Mem},
+    opcode::*,
     register::RegisterSet,
 };
 
 pub struct System {
     reg_set: RegisterSet,
     memory: Memory,
+    ime: bool,
 }
 
 #[derive(Debug)]
@@ -36,6 +35,7 @@ impl System {
         Self {
             reg_set: Default::default(),
             memory: Memory::init(boot_rom, cart, mode),
+            ime: false,
         }
     }
 
@@ -92,6 +92,16 @@ impl System {
         let sp = self.reg_set.sp;
         self.reg_set.pc = u16::from_le_bytes([self.memory.read(sp)?, self.memory.read(sp + 1)?]);
         self.reg_set.sp += 2;
+        Ok(())
+    }
+
+    fn call(&mut self, A16(a16): A16) -> Result<(), Error> {
+        let [pc_upper, pc_lower] = self.reg_set.pc.to_be_bytes();
+        self.reg_set.sp -= 1;
+        self.memory.write(self.reg_set.pc, pc_upper)?;
+        self.reg_set.sp -= 1;
+        self.memory.write(self.reg_set.pc, pc_lower)?;
+        self.reg_set.pc = a16;
         Ok(())
     }
 
@@ -153,12 +163,11 @@ impl System {
                 self.reg_set.set_carry(carry);
             }
             Op::IncR8(r8) => {
-                let (result, carry) = self.read_r8(r8)?.overflowing_add(1);
+                let result = self.read_r8(r8)?.wrapping_add(1);
                 self.write_r8(r8, result)?;
-                self.reg_set.set_zero(carry);
+                self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(false);
                 self.reg_set.set_half_carry(result == 0x10);
-                self.reg_set.set_carry(carry);
             }
             Op::DecR8(r8) => {
                 let result = self.read_r8(r8)?.wrapping_sub(1);
@@ -189,7 +198,29 @@ impl System {
                 self.reg_set.a = ((self.reg_set.carry() as u8) << 7) + (self.reg_set.a >> 1);
             }
             Op::Daa => {
-                // TODO https://blog.ollien.com/posts/gb-daa/
+                let tens = if (!self.reg_set.sub() && self.reg_set.a > 0x99) || self.reg_set.carry()
+                {
+                    self.reg_set.set_carry(true);
+                    0x60
+                } else {
+                    self.reg_set.set_carry(false);
+                    0x00
+                };
+                let ones = if (!self.reg_set.sub() && (self.reg_set.a & 0x0F) > 0x09)
+                    || self.reg_set.half_carry()
+                {
+                    0x06
+                } else {
+                    0x00
+                };
+                let adjust = tens + ones;
+                self.reg_set.a = if self.reg_set.sub() {
+                    self.reg_set.a.wrapping_add(adjust)
+                } else {
+                    self.reg_set.a.wrapping_sub(adjust)
+                };
+                self.reg_set.set_zero(self.reg_set.a == 0);
+                self.reg_set.set_half_carry(false);
             }
             Op::Cpl => {
                 self.reg_set.a = !self.reg_set.a;
@@ -208,16 +239,16 @@ impl System {
             }
             Op::JrE8(E8(e8)) => self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into()),
             Op::JrCondE8(Cond::Z, E8(e8)) if self.reg_set.zero() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into())
+                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::Nz, E8(e8)) if !self.reg_set.zero() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into())
+                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::C, E8(e8)) if self.reg_set.carry() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into())
+                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::Nc, E8(e8)) if !self.reg_set.carry() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into())
+                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(..) => {}
             Op::Stop(_) => {
@@ -233,7 +264,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(false);
                 self.reg_set
-                    .set_half_carry(((self.reg_set.a & 0x0F) + (operand & 0x0F)) & 0x10 != 0);
+                    .set_half_carry((self.reg_set.a & 0x0F) + (operand & 0x0F) > 0x0F);
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -243,7 +274,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(false);
                 self.reg_set
-                    .set_half_carry(((self.reg_set.a & 0x0F) + (operand & 0x0F)) & 0x10 != 0);
+                    .set_half_carry((self.reg_set.a & 0x0F) + (operand & 0x0F) > 0x0F);
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -253,7 +284,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(true);
                 self.reg_set
-                    .set_half_carry((self.reg_set.a & 0x0F).overflowing_sub(operand & 0x0F).1);
+                    .set_half_carry((self.reg_set.a & 0x0F) < (operand & 0x0F));
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -293,7 +324,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(true);
                 self.reg_set
-                    .set_half_carry((self.reg_set.a & 0x0F).overflowing_sub(operand & 0x0F).1);
+                    .set_half_carry((self.reg_set.a & 0x0F) < (operand & 0x0F));
                 self.reg_set.set_carry(carry);
             }
             Op::AddN8(N8(n8)) => {
@@ -301,7 +332,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(false);
                 self.reg_set
-                    .set_half_carry(((self.reg_set.a & 0x0F) + (n8 & 0x0F)) & 0x10 != 0);
+                    .set_half_carry((self.reg_set.a & 0x0F) + (n8 & 0x0F) > 0x0F);
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -310,7 +341,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(false);
                 self.reg_set
-                    .set_half_carry(((self.reg_set.a & 0x0F) + (n8 & 0x0F)) & 0x10 != 0);
+                    .set_half_carry((self.reg_set.a & 0x0F) + (n8 & 0x0F) > 0x0F);
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -319,7 +350,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(true);
                 self.reg_set
-                    .set_half_carry((self.reg_set.a & 0x0F).overflowing_sub(n8 & 0x0F).1);
+                    .set_half_carry((self.reg_set.a & 0x0F) < (n8 & 0x0F));
                 self.reg_set.set_carry(carry);
                 self.reg_set.a = result;
             }
@@ -357,7 +388,7 @@ impl System {
                 self.reg_set.set_zero(result == 0x00);
                 self.reg_set.set_sub(true);
                 self.reg_set
-                    .set_half_carry((self.reg_set.a & 0x0F).overflowing_sub(n8 & 0x0F).1);
+                    .set_half_carry((self.reg_set.a & 0x0F) < (n8 & 0x0F));
                 self.reg_set.set_carry(carry);
             }
             Op::RetCond(Cond::Z) if self.reg_set.zero() => self.ret()?,
@@ -368,7 +399,7 @@ impl System {
             Op::Ret => self.ret()?,
             Op::Reti => {
                 self.ret()?;
-                self.memory.write(memory::INTERRUPTS_REG, 0x01)?;
+                self.ime = true;
             }
             Op::JpCondA16(Cond::Z, A16(a16)) if self.reg_set.zero() => self.reg_set.pc = a16,
             Op::JpCondA16(Cond::Nz, A16(a16)) if !self.reg_set.zero() => self.reg_set.pc = a16,
@@ -377,51 +408,113 @@ impl System {
             Op::JpCondA16(..) => {}
             Op::JpA16(A16(a16)) => self.reg_set.pc = a16,
             Op::JpHl => self.reg_set.pc = self.reg_set.hl(),
-            Op::CallCondA16(cond, a16) => {
-                // TODO
-            }
-            Op::CallA16(a16) => {
-                // TODO
-            }
-            Op::Rst(tgt3) => {
-                // TODO
-            }
+            Op::CallCondA16(Cond::Z, a16) if self.reg_set.zero() => self.call(a16)?,
+            Op::CallCondA16(Cond::Nz, a16) if !self.reg_set.zero() => self.call(a16)?,
+            Op::CallCondA16(Cond::C, a16) if self.reg_set.carry() => self.call(a16)?,
+            Op::CallCondA16(Cond::Nc, a16) if !self.reg_set.carry() => self.call(a16)?,
+            Op::CallCondA16(..) => {}
+            Op::CallA16(a16) => self.call(a16)?,
+            Op::Rst(Tgt3(tgt3)) => self.call(A16(u16::from_be_bytes([0x00, tgt3])))?,
             Op::Pop(r16_stk) => {
-                // TODO
+                let popped = u16::from_le_bytes([
+                    self.memory.read(self.reg_set.sp)?,
+                    self.memory.read(self.reg_set.sp + 1)?,
+                ]);
+                self.reg_set.sp += 2;
+                match r16_stk {
+                    R16Stk::Bc => self.reg_set.set_bc(popped),
+                    R16Stk::De => self.reg_set.set_de(popped),
+                    R16Stk::Hl => self.reg_set.set_hl(popped),
+                    R16Stk::Af => self.reg_set.set_af(popped),
+                }
             }
             Op::Push(r16_stk) => {
-                // TODO
+                let push = match r16_stk {
+                    R16Stk::Bc => self.reg_set.bc(),
+                    R16Stk::De => self.reg_set.de(),
+                    R16Stk::Hl => self.reg_set.hl(),
+                    R16Stk::Af => self.reg_set.af(),
+                };
+                let [upper, lower] = push.to_be_bytes();
+                self.reg_set.sp -= 1;
+                self.memory.write(self.reg_set.sp, upper)?;
+                self.reg_set.sp -= 1;
+                self.memory.write(self.reg_set.sp, lower)?;
             }
-            Op::Prefix(prefixed, r8) => {
-                // TODO
+            Op::Prefix(prefixed, r8) => 'prefixed: {
+                let value = self.read_r8(r8)?;
+                self.reg_set.f = 0x00;
+                let (result, carry) = match prefixed {
+                    Prefixed::Rlc => (value.rotate_left(1), value & 0b10000000 != 0),
+                    Prefixed::Rrc => (value.rotate_right(1), value % 2 == 1),
+                    Prefixed::Rl => (
+                        (value << 1) + self.reg_set.carry() as u8,
+                        value & 0b10000000 != 0,
+                    ),
+                    Prefixed::Rr => (
+                        ((self.reg_set.carry() as u8) << 7) + (value >> 1),
+                        value % 2 == 1,
+                    ),
+                    Prefixed::Sla => (value << 1, value & 0b10000000 != 0),
+                    Prefixed::Sra => ((value >> 1) | (value & 0b10000000), value % 2 == 1),
+                    Prefixed::Swap => ((value << 4) | (value >> 4), false),
+                    Prefixed::Srl => (value >> 1, value % 2 == 1),
+                    Prefixed::Bit(B3(b3)) => {
+                        self.reg_set.set_zero((value >> b3) % 2 == 0);
+                        self.reg_set.set_half_carry(true);
+                        break 'prefixed;
+                    }
+                    Prefixed::Res(B3(b3)) => {
+                        self.write_r8(r8, value & !(1u8 << b3))?;
+                        break 'prefixed;
+                    }
+                    Prefixed::Set(B3(b3)) => {
+                        self.write_r8(r8, value | (1u8 << b3))?;
+                        break 'prefixed;
+                    }
+                };
+                self.write_r8(r8, result)?;
+                self.reg_set.set_zero(result == 0);
+                self.reg_set.set_carry(carry);
             }
-            Op::LdhCA => {
-                // TODO
-            }
-            Op::LdhA8A(a8) => {
-                // TODO
-            }
-            Op::LdA16A(a16) => {
-                // TODO
-            }
+            Op::LdhCA => self
+                .memory
+                .write(u16::from_be_bytes([0xFF, self.reg_set.c]), self.reg_set.a)?,
+            Op::LdhA8A(A8(a8)) => self
+                .memory
+                .write(u16::from_be_bytes([0xFF, a8]), self.reg_set.a)?,
+            Op::LdA16A(A16(a16)) => self.memory.write(a16, self.reg_set.a)?,
             Op::LdhAC => {
-                // TODO
+                self.reg_set.a = self
+                    .memory
+                    .read(u16::from_be_bytes([0xFF, self.reg_set.c]))?;
             }
-            Op::LdhAA8(a8) => {
-                // TODO
+            Op::LdhAA8(A8(a8)) => {
+                self.reg_set.a = self.memory.read(u16::from_be_bytes([0xFF, a8]))?;
             }
-            Op::LdAA16(a16) => {
-                // TODO
+            Op::LdAA16(A16(a16)) => self.reg_set.a = self.memory.read(a16)?,
+            Op::AddSpE8(E8(e8)) => {
+                let (result, carry) = self.reg_set.sp.overflowing_add_signed(e8.into());
+                self.reg_set.set_sub(false);
+                self.reg_set.set_half_carry(
+                    (self.reg_set.sp & 0x000F).wrapping_add_signed(e8.into()) > 0x000F,
+                );
+                self.reg_set.set_carry(carry);
+                self.reg_set.sp = result;
             }
-            Op::AddSpE8(e8) => {
-                // TODO
-            }
-            Op::LdHlSpPlusE8(e8) => {
-                // TODO
+            Op::LdHlSpPlusE8(E8(e8)) => {
+                let (result, carry) = self.reg_set.sp.overflowing_add_signed(e8.into());
+                self.reg_set.set_zero(false);
+                self.reg_set.set_sub(false);
+                self.reg_set.set_half_carry(
+                    (self.reg_set.sp & 0x000F).wrapping_add_signed(e8.into()) > 0x000F,
+                );
+                self.reg_set.set_carry(carry);
+                self.reg_set.set_hl(result);
             }
             Op::LdSpHl => self.reg_set.sp = self.reg_set.hl(),
-            Op::Di => self.memory.write(memory::INTERRUPTS_REG, 0x00)?,
-            Op::Ei => self.memory.write(memory::INTERRUPTS_REG, 0x01)?,
+            Op::Di => self.ime = false,
+            Op::Ei => self.ime = true,
         }
 
         Ok(())
