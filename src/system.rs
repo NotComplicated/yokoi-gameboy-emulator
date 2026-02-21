@@ -12,6 +12,8 @@ use crate::{
 pub struct System {
     reg_set: RegisterSet,
     memory: Memory,
+    current_op: Op,
+    op_duration: Duration,
     ppu: Ppu,
     apu: Apu,
     state: State,
@@ -36,47 +38,99 @@ pub enum Error {
     Render(render::Error),
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Mode {
-    Dmg,
-    Gbc,
-}
-
-#[derive(Debug)]
-enum State {
-    Running,
-    Halted,
-    Stopped,
-}
-
 impl From<memory::Error> for Error {
     fn from(err: memory::Error) -> Self {
         Self::Memory(err)
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum Mode {
+    Dmg,
+    Gbc,
+}
+
+#[derive(Copy, Clone, Debug)]
+enum State {
+    Running,
+    CondDelay(u8),
+    Halted,
+    Stopped,
+}
+
+#[derive(Debug)]
+enum HandleOp {
+    Handled,
+    FalseCond,
+}
+
 impl System {
-    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Self {
+    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Result<Self, Error> {
         let mode = Mode::Dmg;
-        Self {
-            reg_set: Default::default(),
-            memory: Memory::init(boot_rom, cart, mode),
+        let memory = Memory::init(boot_rom, cart, mode);
+        let (current_op, pc) = memory.read_op(0)?;
+        let op_duration = current_op.properties().duration;
+
+        Ok(Self {
+            reg_set: RegisterSet {
+                pc,
+                ..Default::default()
+            },
+            memory,
+            current_op,
+            op_duration,
             ppu: Ppu::init(mode),
             apu: Apu::init(),
             state: State::Running,
             ime: false,
-        }
+        })
     }
 
     pub fn next_frame(&mut self, inputs: &[Input]) -> Result<(Frame, Sound), Error> {
         loop {
-            let (op, pc) = self.memory.read_op(self.reg_set.pc)?;
-            self.reg_set.pc = pc;
-            self.tick(op)?;
-            if let Some(frame) = self.ppu.tick().map_err(Error::Render)? {
-                break Ok((frame, Sound));
+            if let Some((frame, sound)) = self.tick()? {
+                break Ok((frame, sound));
             }
         }
+    }
+
+    fn tick(&mut self) -> Result<Option<(Frame, Sound)>, Error> {
+        match (self.state, self.op_duration) {
+            (State::Running, Duration::Const(1)) => {
+                self.handle_op()?;
+                (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                self.op_duration = self.current_op.properties().duration;
+            }
+            (State::Running, Duration::Const(ticks)) => {
+                self.op_duration = Duration::Const(ticks - 1);
+            }
+            (State::Running, Duration::Cond(ticks, 1)) => match self.handle_op()? {
+                HandleOp::Handled => {
+                    self.state = State::CondDelay(ticks - 1);
+                }
+                HandleOp::FalseCond => {
+                    (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                    self.op_duration = self.current_op.properties().duration;
+                }
+            },
+            (State::Running, Duration::Cond(true_ticks, false_ticks)) => {
+                self.op_duration = Duration::Cond(true_ticks - 1, false_ticks - 1);
+            }
+            (State::CondDelay(1), _) => {
+                self.state = State::Running;
+                (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                self.op_duration = self.current_op.properties().duration;
+            }
+            (State::CondDelay(ticks), _) => {
+                self.state = State::CondDelay(ticks - 1);
+            }
+            (State::Halted | State::Stopped, _) => todo!("halt / stop handling"),
+        }
+
+        self.ppu
+            .tick(&mut self.memory)
+            .map(|maybe_frame| maybe_frame.map(|frame| (frame, Sound)))
+            .map_err(Error::Render)
     }
 
     fn read_r16(&self, r16: R16) -> u16 {
@@ -141,8 +195,8 @@ impl System {
         Ok(())
     }
 
-    fn tick(&mut self, op: Op) -> Result<(), Error> {
-        match op {
+    fn handle_op(&mut self) -> Result<HandleOp, Error> {
+        match self.current_op {
             Op::Nop => {}
             Op::LdR16N16(r16, N16(n16)) => self.write_r16(r16, n16),
             Op::LdR16MemA(r16_mem) => match r16_mem {
@@ -283,7 +337,7 @@ impl System {
             Op::JrCondE8(Cond::Nc, E8(e8)) if !self.reg_set.carry() => {
                 self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
             }
-            Op::JrCondE8(..) => {}
+            Op::JrCondE8(..) => return Ok(HandleOp::FalseCond),
             Op::Stop(_) => self.state = State::Stopped,
             Op::LdR8R8(r8_src, r8_dest) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
             Op::Halt => self.state = State::Halted,
@@ -424,7 +478,7 @@ impl System {
             Op::RetCond(Cond::Nz) if !self.reg_set.zero() => self.ret()?,
             Op::RetCond(Cond::C) if self.reg_set.carry() => self.ret()?,
             Op::RetCond(Cond::Nc) if !self.reg_set.carry() => self.ret()?,
-            Op::RetCond(_) => {}
+            Op::RetCond(_) => return Ok(HandleOp::FalseCond),
             Op::Ret => self.ret()?,
             Op::Reti => {
                 self.ret()?;
@@ -434,14 +488,14 @@ impl System {
             Op::JpCondA16(Cond::Nz, A16(a16)) if !self.reg_set.zero() => self.reg_set.pc = a16,
             Op::JpCondA16(Cond::C, A16(a16)) if self.reg_set.carry() => self.reg_set.pc = a16,
             Op::JpCondA16(Cond::Nc, A16(a16)) if !self.reg_set.carry() => self.reg_set.pc = a16,
-            Op::JpCondA16(..) => {}
+            Op::JpCondA16(..) => return Ok(HandleOp::FalseCond),
             Op::JpA16(A16(a16)) => self.reg_set.pc = a16,
             Op::JpHl => self.reg_set.pc = self.reg_set.hl(),
             Op::CallCondA16(Cond::Z, a16) if self.reg_set.zero() => self.call(a16)?,
             Op::CallCondA16(Cond::Nz, a16) if !self.reg_set.zero() => self.call(a16)?,
             Op::CallCondA16(Cond::C, a16) if self.reg_set.carry() => self.call(a16)?,
             Op::CallCondA16(Cond::Nc, a16) if !self.reg_set.carry() => self.call(a16)?,
-            Op::CallCondA16(..) => {}
+            Op::CallCondA16(..) => return Ok(HandleOp::FalseCond),
             Op::CallA16(a16) => self.call(a16)?,
             Op::Rst(Tgt3(tgt3)) => self.call(A16(u16::from_be_bytes([0x00, tgt3])))?,
             Op::Pop(r16_stk) => {
@@ -546,6 +600,6 @@ impl System {
             Op::Ei => self.ime = true,
         }
 
-        Ok(())
+        Ok(HandleOp::Handled)
     }
 }

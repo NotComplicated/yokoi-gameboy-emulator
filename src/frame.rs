@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Frame(pub [[Pixel; 160]; 144]);
 
 #[derive(Copy, Clone, Debug)]

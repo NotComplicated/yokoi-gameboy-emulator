@@ -58,7 +58,7 @@ impl R16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum R16Stk {
     Bc = 0b00,
@@ -211,7 +211,7 @@ impl Tgt3 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Op {
     Nop,
     LdR16N16(R16, N16),
@@ -278,7 +278,7 @@ pub enum Op {
     Ei,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Prefixed {
     Rlc,
     Rrc,
@@ -293,7 +293,7 @@ pub enum Prefixed {
     Set(B3),
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Duration {
     Const(u8),
     Cond(u8, u8),
@@ -309,11 +309,11 @@ pub enum FlagMode {
 
 #[derive(Debug)]
 pub struct Properties {
-    duration: Duration,
-    zero: FlagMode,
-    subtract: FlagMode,
-    half_carry: FlagMode,
-    carry: FlagMode,
+    pub duration: Duration,
+    pub zero: FlagMode,
+    pub subtract: FlagMode,
+    pub half_carry: FlagMode,
+    pub carry: FlagMode,
 }
 
 impl Op {
