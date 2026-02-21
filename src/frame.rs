@@ -4,6 +4,11 @@ pub struct Frame(pub [[Pixel; 160]; 144]);
 #[derive(Copy, Clone, Debug)]
 pub struct Pixel(u8, u8, u8);
 
+pub enum Theme {
+    Mono,
+    Classic,
+}
+
 pub(crate) type Rgb555 = [u8; 2];
 
 impl Pixel {
@@ -23,7 +28,37 @@ impl Pixel {
         Self(255, 255, 255)
     }
 
-    fn from_rgb555([lower, upper]: Rgb555) -> Self {
+    fn lightest_green() -> Self {
+        Self(155, 188, 15)
+    }
+
+    fn light_green() -> Self {
+        Self(139, 172, 15)
+    }
+
+    fn dark_green() -> Self {
+        Self(48, 98, 48)
+    }
+
+    fn darkest_green() -> Self {
+        Self(15, 56, 15)
+    }
+
+    pub(crate) fn from_2bit(bits: u8, theme: Theme) -> Self {
+        match (bits & 0b11, theme) {
+            (0b00, Theme::Mono) => Self::white(),
+            (0b01, Theme::Mono) => Self::light(),
+            (0b10, Theme::Mono) => Self::dark(),
+            (0b11, Theme::Mono) => Self::black(),
+            (0b00, Theme::Classic) => Self::lightest_green(),
+            (0b01, Theme::Classic) => Self::light_green(),
+            (0b10, Theme::Classic) => Self::dark_green(),
+            (0b11, Theme::Classic) => Self::darkest_green(),
+            _ => unreachable!(),
+        }
+    }
+
+    pub(crate) fn from_rgb555([lower, upper]: Rgb555) -> Self {
         let r = lower & 0b11111000;
         let g = ((lower & 0b00000111) << 5) | ((upper & 0b11000000) >> 3);
         let b = (upper & 0b00111110) << 2;
