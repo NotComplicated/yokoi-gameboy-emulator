@@ -12,6 +12,7 @@ pub struct Ppu {
     ppu_mode: Mode,
     ly: u8,
     lx: u16,
+    wy: u8,
     bg_fifo: Fifo,
     obj_fifo: Fifo,
     frame: Frame,
@@ -29,9 +30,23 @@ pub enum Mode {
 pub enum Error {}
 
 #[derive(Default, Debug)]
-struct Fifo([u8; 16]);
+struct Fifo {
+    buffer: [Pixel; 16],
+    pos: usize,
+}
 
-enum Draw {}
+#[derive(Default, Debug)]
+struct Pixel {
+    color: u8,
+    palette: u8,
+    obj_priority: bool,
+    bg_priority: bool,
+}
+
+enum Draw {
+    Drawing,
+    FinishedLine,
+}
 
 impl Ppu {
     pub fn init(mode: system::Mode) -> Self {
@@ -40,6 +55,7 @@ impl Ppu {
             ppu_mode: Mode::OamScan,
             ly: 0,
             lx: 0,
+            wy: 0,
             bg_fifo: Default::default(),
             obj_fifo: Default::default(),
             frame: Default::default(),
@@ -81,7 +97,9 @@ impl Ppu {
                 self.lx += 1;
             }
             Mode::Drawing => {
-                self.draw(memory)?;
+                if let Draw::FinishedLine = self.draw(memory)? {
+                    self.ppu_mode = Mode::Hblank;
+                }
                 self.lx += 1;
             }
         }
@@ -92,7 +110,7 @@ impl Ppu {
         self.ppu_mode
     }
 
-    fn draw(&mut self, memory: &mut Memory) -> Result<(), Error> {
-        Ok(())
+    fn draw(&mut self, memory: &mut Memory) -> Result<Draw, Error> {
+        todo!()
     }
 }
