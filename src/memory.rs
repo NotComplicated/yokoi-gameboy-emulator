@@ -86,6 +86,7 @@ pub struct Memory {
     boot_rom: Vec<u8>,
     cart: Cart,
     mbc: Mbc,
+    lock: Lock,
     vram: [u8; 8 * 1024],
     vram_cgb: Option<Box<[u8; 8 * 1024]>>,
     wram: [[u8; 4 * 1024]; 2],
@@ -156,6 +157,13 @@ enum Mbc1ExtBank {
         rom_bank_upper_reg: u8,
         sram: Sram,
     },
+}
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum Lock {
+    Unlocked,
+    Oam,
+    VramOam,
 }
 
 #[derive(Default, Debug)]
@@ -286,6 +294,7 @@ impl Memory {
             boot_rom,
             cart,
             mbc,
+            lock: Lock::Unlocked,
             vram: [0; _],
             vram_cgb: is_cgb.then(|| Box::new([0; _])),
             wram: [[0; _]; _],
@@ -311,6 +320,10 @@ impl Memory {
             hram: [0; _],
             ie: 0,
         }
+    }
+
+    pub fn lock(&mut self, lock: Lock) {
+        self.lock = lock;
     }
 
     pub fn read(&self, addr: u16) -> Result<u8, Error> {
@@ -405,13 +418,19 @@ impl Memory {
                 }
             },
 
-            VRAM_START..SRAM_START => match self.mode {
-                Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
-                    Ok(&self.vram_cgb.as_ref().expect("is_some if cgb")
-                        [(addr - VRAM_START).into()..])
+            VRAM_START..SRAM_START => {
+                if self.lock == Lock::VramOam {
+                    Ok(&[0xFF; 16])
+                } else {
+                    match self.mode {
+                        Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
+                            Ok(&self.vram_cgb.as_ref().expect("is_some if cgb")
+                                [(addr - VRAM_START).into()..])
+                        }
+                        _ => Ok(&self.vram[(addr - VRAM_START).into()..]),
+                    }
                 }
-                _ => Ok(&self.vram[(addr - VRAM_START).into()..]),
-            },
+            }
 
             SRAM_START..WRAM_BANK_0_START => match &self.mbc {
                 Mbc::None { sram } => Ok(&sram[(addr - SRAM_START).into()..]),
@@ -484,7 +503,13 @@ impl Memory {
 
             ERAM_START..OAM_START => self.read_inner(addr - (ERAM_START - WRAM_BANK_0_START)),
 
-            OAM_START..OAM_END => Ok(&self.oam[(addr - OAM_START).into()..]),
+            OAM_START..OAM_END => {
+                if self.lock == Lock::Unlocked {
+                    Ok(&self.oam[(addr - OAM_START).into()..])
+                } else {
+                    Ok(&[0xFF; 16])
+                }
+            }
 
             JOYPAD_REG => Ok(as_slice(&self.joypad)),
 
@@ -555,21 +580,29 @@ impl Memory {
 
             BG_COLOR_PALETTE_SPEC_REG => Ok(as_slice(&self.lcd.cgb_bg_palette_spec)),
             BG_COLOR_PALETTE_DATA_REG => {
-                let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
-                let palette = (spec & 0b00111000) as usize >> 3;
-                let color = (spec & 0b00000110) as usize >> 1;
-                Ok(as_slice(
-                    &self.lcd.cgb_bg_palettes[palette][color][(spec % 2) as usize],
-                ))
+                if self.lock == Lock::VramOam {
+                    Ok(&[0xFF; 16])
+                } else {
+                    let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
+                    let palette = (spec & 0b00111000) as usize >> 3;
+                    let color = (spec & 0b00000110) as usize >> 1;
+                    Ok(as_slice(
+                        &self.lcd.cgb_bg_palettes[palette][color][(spec % 2) as usize],
+                    ))
+                }
             }
             OBJ_COLOR_PALETTE_SPEC_REG => Ok(as_slice(&self.lcd.cgb_obj_palette_spec)),
             OBJ_COLOR_PALETTE_DATA_REG => {
-                let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;
-                let palette = (spec & 0b00111000) as usize >> 3;
-                let color = (spec & 0b00000110) as usize >> 1;
-                Ok(as_slice(
-                    &self.lcd.cgb_obj_palettes[palette][color][(spec % 2) as usize],
-                ))
+                if self.lock == Lock::VramOam {
+                    Ok(&[0xFF; 16])
+                } else {
+                    let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;
+                    let palette = (spec & 0b00111000) as usize >> 3;
+                    let color = (spec & 0b00000110) as usize >> 1;
+                    Ok(as_slice(
+                        &self.lcd.cgb_obj_palettes[palette][color][(spec % 2) as usize],
+                    ))
+                }
             }
 
             OBJ_PRIORITY_MODE_REG => Ok(as_slice(&self.cgb_obj_priority)),
@@ -672,13 +705,19 @@ impl Memory {
                 return Ok(());
             }
 
-            VRAM_START..SRAM_START => match self.mode {
-                Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
-                    &mut self.vram_cgb.as_mut().expect("is_some if cgb")
-                        [(addr - VRAM_START).into()..]
+            VRAM_START..SRAM_START => {
+                if self.lock == Lock::VramOam {
+                    return Ok(());
+                } else {
+                    match self.mode {
+                        Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
+                            &mut self.vram_cgb.as_mut().expect("is_some if cgb")
+                                [(addr - VRAM_START).into()..]
+                        }
+                        _ => &mut self.vram[(addr - VRAM_START).into()..],
+                    }
                 }
-                _ => &mut self.vram[(addr - VRAM_START).into()..],
-            },
+            }
 
             SRAM_START..WRAM_BANK_0_START => match &mut self.mbc {
                 Mbc::None { sram } => &mut sram[(addr - SRAM_START).into()..],
@@ -753,7 +792,13 @@ impl Memory {
                 return self.write_slice(addr - (ERAM_START - WRAM_BANK_0_START), data);
             }
 
-            OAM_START..OAM_END => &mut self.oam[(addr - OAM_START).into()..],
+            OAM_START..OAM_END => {
+                if self.lock == Lock::Unlocked {
+                    &mut self.oam[(addr - OAM_START).into()..]
+                } else {
+                    return Ok(());
+                }
+            }
 
             JOYPAD_REG => as_slice(&mut self.joypad),
 
@@ -824,6 +869,9 @@ impl Memory {
 
             BG_COLOR_PALETTE_SPEC_REG => as_slice(&mut self.lcd.cgb_bg_palette_spec),
             BG_COLOR_PALETTE_DATA_REG => {
+                if self.lock == Lock::VramOam {
+                    return Ok(());
+                }
                 let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
                 if (spec & 0b10000000) != 0 {
                     // auto-increment
@@ -835,6 +883,9 @@ impl Memory {
             }
             OBJ_COLOR_PALETTE_SPEC_REG => as_slice(&mut self.lcd.cgb_obj_palette_spec),
             OBJ_COLOR_PALETTE_DATA_REG => {
+                if self.lock == Lock::VramOam {
+                    return Ok(());
+                }
                 let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;
                 if (spec & 0b10000000) != 0 {
                     // auto-increment
