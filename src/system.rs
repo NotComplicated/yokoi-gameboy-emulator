@@ -44,7 +44,7 @@ impl From<memory::Error> for Error {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub(crate) enum Mode {
     Dmg,
     Gbc,

@@ -223,7 +223,7 @@ pub enum Error {
 
 impl Memory {
     pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
-        let is_cgb = matches!(mode, Mode::Gbc);
+        let is_cgb = mode == Mode::Gbc;
         let mbc = 'mbc: {
             for feature in cart.features() {
                 match feature {
@@ -335,6 +335,10 @@ impl Memory {
         Op::read(mem)
             .map(|(op, new_mem)| (op, pc + (new_mem.len() - mem.len()) as u16))
             .map_err(Error::Op)
+    }
+
+    pub fn oam(&self) -> &[u8; 160] {
+        &self.oam
     }
 
     pub fn write(&mut self, addr: u16, data: u8) -> Result<(), Error> {
