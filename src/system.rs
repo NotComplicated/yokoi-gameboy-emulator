@@ -44,10 +44,16 @@ impl From<memory::Error> for Error {
     }
 }
 
+impl From<render::Error> for Error {
+    fn from(err: render::Error) -> Self {
+        Self::Render(err)
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub(crate) enum Mode {
     Dmg,
-    Gbc,
+    Cgb,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -127,10 +133,30 @@ impl System {
             (State::Halted | State::Stopped, _) => todo!("halt / stop handling"),
         }
 
-        self.ppu
-            .tick(&mut self.memory)
-            .map(|maybe_frame| maybe_frame.map(|frame| (frame, Sound)))
-            .map_err(Error::Render)
+        let frame = self.ppu.tick(&mut self.memory)?;
+        if self.ime {
+            let ie = self.memory.read(memory::IE_REG)?;
+            let interrupts = self.memory.read(memory::INTERRUPTS_REG)?;
+            let handlers = [
+                (0b00000001, 0x40),
+                (0b00000010, 0x48),
+                (0b00000100, 0x50),
+                (0b00001000, 0x58),
+                (0b00010000, 0x60),
+            ];
+            for (mask, address) in handlers {
+                if (ie & mask) != 0 && (interrupts & mask) != 0 {
+                    self.memory
+                        .write(memory::INTERRUPTS_REG, interrupts & !mask)?;
+                    self.ime = false;
+                    self.call(A16(address))?;
+                    // TODO use this .call or add to state machine?
+                    break;
+                }
+            }
+        }
+
+        Ok(frame.map(|f| (f, Sound)))
     }
 
     fn read_r16(&self, r16: R16) -> u16 {

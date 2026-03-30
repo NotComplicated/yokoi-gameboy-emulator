@@ -223,7 +223,7 @@ pub enum Error {
 
 impl Memory {
     pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
-        let is_cgb = mode == Mode::Gbc;
+        let is_cgb = mode == Mode::Cgb;
         let mbc = 'mbc: {
             for feature in cart.features() {
                 match feature {
@@ -427,7 +427,7 @@ impl Memory {
                     Ok(&[0xFF; 16])
                 } else {
                     match self.mode {
-                        Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
+                        Mode::Cgb if self.read(VRAM_BANK_REG)? != 0 => {
                             Ok(&self.vram_cgb.as_ref().expect("is_some if cgb")
                                 [(addr - VRAM_START).into()..])
                         }
@@ -714,7 +714,7 @@ impl Memory {
                     return Ok(());
                 } else {
                     match self.mode {
-                        Mode::Gbc if self.read(VRAM_BANK_REG)? != 0 => {
+                        Mode::Cgb if self.read(VRAM_BANK_REG)? != 0 => {
                             &mut self.vram_cgb.as_mut().expect("is_some if cgb")
                                 [(addr - VRAM_START).into()..]
                         }

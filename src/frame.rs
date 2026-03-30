@@ -5,7 +5,7 @@ pub struct Frame(pub [[Pixel; 160]; 144]);
 pub struct Pixel(u8, u8, u8);
 
 pub enum Theme {
-    Mono,
+    Grayscale,
     Classic,
 }
 
@@ -46,10 +46,10 @@ impl Pixel {
 
     pub(crate) fn from_2bit(bits: u8, theme: Theme) -> Self {
         match (bits & 0b11, theme) {
-            (0b00, Theme::Mono) => Self::white(),
-            (0b01, Theme::Mono) => Self::light(),
-            (0b10, Theme::Mono) => Self::dark(),
-            (0b11, Theme::Mono) => Self::black(),
+            (0b00, Theme::Grayscale) => Self::white(),
+            (0b01, Theme::Grayscale) => Self::light(),
+            (0b10, Theme::Grayscale) => Self::dark(),
+            (0b11, Theme::Grayscale) => Self::black(),
             (0b00, Theme::Classic) => Self::lightest_green(),
             (0b01, Theme::Classic) => Self::light_green(),
             (0b10, Theme::Classic) => Self::dark_green(),
@@ -69,5 +69,19 @@ impl Pixel {
 impl Default for Frame {
     fn default() -> Self {
         Self([[Pixel::white(); _]; _])
+    }
+}
+
+impl std::ops::Index<(usize, usize)> for Frame {
+    type Output = Pixel;
+
+    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+        &self.0[y][x]
+    }
+}
+
+impl std::ops::IndexMut<(usize, usize)> for Frame {
+    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
+        &mut self.0[y][x]
     }
 }
