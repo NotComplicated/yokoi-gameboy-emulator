@@ -70,7 +70,7 @@ fn run() -> Result<(), Error> {
             let cart_data = std::fs::read(&cart)?;
             let cart = yokoi::cart::Cart::new(cart_data).map_err(Error::Cart)?;
             let system = yokoi::system::System::init(boot_rom_data, cart).map_err(Error::System)?;
-            let game_screen = GameScreen::new(system);
+            let game_screen = GameScreen::default();
         }
 
         Commands::CartInfo { cart } => {

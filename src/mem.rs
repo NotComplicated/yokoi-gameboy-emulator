@@ -348,7 +348,7 @@ impl Memory {
     pub fn read_op(&self, pc: u16) -> Result<(Op, u16), Error> {
         let mem = self.read_inner(pc)?;
         Op::read(mem)
-            .map(|(op, new_mem)| (op, pc + (new_mem.len() - mem.len()) as u16))
+            .map(|(op, new_mem)| (op, pc + (mem.len() - new_mem.len()) as u16))
             .map_err(Error::Op)
     }
 

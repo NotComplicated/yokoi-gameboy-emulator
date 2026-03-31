@@ -4,7 +4,7 @@ use std::{cell::Cell, rc::Rc};
 pub struct Frame(pub Rc<[[Cell<Pixel>; 160]; 144]>);
 
 #[derive(Copy, Clone, Debug)]
-pub struct Pixel(u8, u8, u8);
+pub struct Pixel(pub u8, pub u8, pub u8);
 
 pub enum Theme {
     Grayscale,
