@@ -6,7 +6,6 @@ use crate::{
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
-    sound::Sound,
 };
 
 pub struct System {
@@ -92,20 +91,16 @@ impl System {
         })
     }
 
-    pub fn next_frame(&mut self, joypad: Joypad) -> Result<(Frame, Sound), Error> {
+    pub fn next_frame(&mut self, joypad: Joypad) -> Result<Frame, Error> {
         self.memory.set_joypad(joypad);
-        if joypad != Default::default() {
-            self.memory
-                .write(mem::IF_REG, self.memory.read(mem::IF_REG)? | 0b00010000)?;
-        }
         loop {
-            if let Some((frame, sound)) = self.tick()? {
-                break Ok((frame, sound));
+            if let Some(frame) = self.tick()? {
+                break Ok(frame);
             }
         }
     }
 
-    fn tick(&mut self) -> Result<Option<(Frame, Sound)>, Error> {
+    fn tick(&mut self) -> Result<Option<Frame>, Error> {
         match (self.state, self.op_duration) {
             (State::Running, Duration::Const(1)) => {
                 self.handle_op()?;
@@ -160,7 +155,7 @@ impl System {
             }
         }
 
-        Ok(frame.map(|f| (f, Sound)))
+        Ok(frame)
     }
 
     fn read_r16(&self, r16: R16) -> u16 {

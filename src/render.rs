@@ -231,7 +231,7 @@ impl Ppu {
                             oam: Default::default(),
                         };
                     } else {
-                        frame = Some(std::mem::take(&mut self.frame));
+                        frame = Some(self.frame.clone());
                         memory.write(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000001)?;
                         self.state = State::Vblank;
                     };
@@ -566,7 +566,7 @@ impl Ppu {
                     }
                 };
                 if let Some(pixel) = frame_pixel {
-                    self.frame[(*x as _, self.ly as _)] = pixel;
+                    self.frame.0[self.ly as usize][*x as usize].set(pixel);
                     *x += 1;
                     if *x == X_END {
                         if *in_window {

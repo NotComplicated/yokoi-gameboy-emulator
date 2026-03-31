@@ -1,5 +1,7 @@
+use std::{cell::Cell, rc::Rc};
+
 #[derive(Clone)]
-pub struct Frame(pub [[Pixel; 160]; 144]);
+pub struct Frame(pub Rc<[[Cell<Pixel>; 160]; 144]>);
 
 #[derive(Copy, Clone, Debug)]
 pub struct Pixel(u8, u8, u8);
@@ -68,20 +70,8 @@ impl Pixel {
 
 impl Default for Frame {
     fn default() -> Self {
-        Self([[Pixel::white(); _]; _])
-    }
-}
-
-impl std::ops::Index<(usize, usize)> for Frame {
-    type Output = Pixel;
-
-    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
-        &self.0[y][x]
-    }
-}
-
-impl std::ops::IndexMut<(usize, usize)> for Frame {
-    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
-        &mut self.0[y][x]
+        Self(Rc::new(std::array::repeat(std::array::repeat(Cell::new(
+            Pixel::white(),
+        )))))
     }
 }

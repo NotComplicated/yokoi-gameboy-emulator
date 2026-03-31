@@ -325,7 +325,16 @@ impl Memory {
     }
 
     pub fn set_joypad(&mut self, joypad: Joypad) {
+        let joyp_before = self.joypad_reg;
         self.joypad = joypad;
+        self.write(JOYPAD_REG, joyp_before).expect("valid address");
+        if [0b00000001, 0b00000010, 0b00000100, 0b00001000]
+            .iter()
+            .any(|b| joyp_before & b != 0 && self.joypad_reg & b == 0)
+        {
+            // trigger interrupt if any buttons went hi -> lo
+            self.interrupts |= 0b00010000;
+        }
     }
 
     pub fn set_lock(&mut self, lock: Lock) {
@@ -812,8 +821,9 @@ impl Memory {
 
             JOYPAD_REG => {
                 if let &[selection] = data {
+                    // bits are inverted. 0 = on, 1 = off
                     self.joypad_reg =
-                        match (selection & 0b00010000 != 0, selection & 0b00100000 != 0) {
+                        match (selection & 0b00100000 != 0, selection & 0b00010000 != 0) {
                             (true, true) => 0x3F,
                             (true, false) => {
                                 0x2F & if self.joypad.right { 0b11111110 } else { 0xFF }
