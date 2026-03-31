@@ -1,5 +1,8 @@
+mod tui;
+
 use clap::{Parser, Subcommand};
 use std::{io::Write, path::PathBuf};
+use tui::GameScreen;
 
 #[derive(Parser)]
 struct Cli {
@@ -9,10 +12,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Run a cartridge in the emulator
+    Run {
+        /// Path to boot ROM file
+        #[arg(short, long)]
+        boot: PathBuf,
+
+        /// Path to cartridge file
+        cart: PathBuf,
+    },
+
     /// Print cartridge information
     CartInfo {
         /// Path to cartridge file
-        path: PathBuf,
+        cart: PathBuf,
     },
 
     /// Hex-dump cartridge contents
@@ -22,12 +35,13 @@ enum Commands {
         bytes: Option<usize>,
 
         /// Path to cartridge file
-        path: PathBuf,
+        cart: PathBuf,
     },
 }
 
 enum Error {
     Io(std::io::Error),
+    System(yokoi::system::Error),
     Cart(yokoi::cart::Error),
 }
 
@@ -41,6 +55,7 @@ fn main() {
     match run() {
         Ok(()) => {}
         Err(Error::Io(err)) => eprintln!("Error: {err}"),
+        Err(Error::System(err)) => eprintln!("Internal system error: {err:?}"),
         Err(Error::Cart(yokoi::cart::Error(err))) => eprintln!("Error while parsing cart: {err}"),
     }
 }
@@ -50,8 +65,16 @@ fn run() -> Result<(), Error> {
     let mut out = std::io::stdout().lock();
 
     match cli.command {
-        Commands::CartInfo { path } => {
-            let data = std::fs::read(&path)?;
+        Commands::Run { boot, cart } => {
+            let boot_rom_data = std::fs::read(&boot)?;
+            let cart_data = std::fs::read(&cart)?;
+            let cart = yokoi::cart::Cart::new(cart_data).map_err(Error::Cart)?;
+            let system = yokoi::system::System::init(boot_rom_data, cart).map_err(Error::System)?;
+            let game_screen = GameScreen::new(system);
+        }
+
+        Commands::CartInfo { cart } => {
+            let data = std::fs::read(&cart)?;
             let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
 
             writeln!(out, "Title: {}", cart.title())?;
@@ -132,8 +155,8 @@ fn run() -> Result<(), Error> {
             }
         }
 
-        Commands::CartDump { bytes, path } => {
-            let data = std::fs::read(&path)?;
+        Commands::CartDump { bytes, cart } => {
+            let data = std::fs::read(&cart)?;
             let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
             let width = crossterm::terminal::size()?.0 as usize;
             let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
