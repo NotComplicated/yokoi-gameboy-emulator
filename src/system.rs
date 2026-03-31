@@ -2,7 +2,7 @@ use crate::{
     audio::Apu,
     cart::Cart,
     frame::Frame,
-    memory::{self, Memory},
+    mem::{self, Memory},
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
@@ -20,26 +20,26 @@ pub struct System {
     ime: bool,
 }
 
-#[derive(Debug)]
-pub enum Input {
-    Start,
-    Select,
-    Up,
-    Down,
-    Left,
-    Right,
-    A,
-    B,
+#[derive(Copy, Clone, PartialEq, Default, Debug)]
+pub struct Joypad {
+    pub start: bool,
+    pub select: bool,
+    pub up: bool,
+    pub down: bool,
+    pub left: bool,
+    pub right: bool,
+    pub a: bool,
+    pub b: bool,
 }
 
 #[derive(Debug)]
 pub enum Error {
-    Memory(memory::Error),
+    Memory(mem::Error),
     Render(render::Error),
 }
 
-impl From<memory::Error> for Error {
-    fn from(err: memory::Error) -> Self {
+impl From<mem::Error> for Error {
+    fn from(err: mem::Error) -> Self {
         Self::Memory(err)
     }
 }
@@ -92,7 +92,12 @@ impl System {
         })
     }
 
-    pub fn next_frame(&mut self, inputs: &[Input]) -> Result<(Frame, Sound), Error> {
+    pub fn next_frame(&mut self, joypad: Joypad) -> Result<(Frame, Sound), Error> {
+        self.memory.set_joypad(joypad);
+        if joypad != Default::default() {
+            self.memory
+                .write(mem::IF_REG, self.memory.read(mem::IF_REG)? | 0b00010000)?;
+        }
         loop {
             if let Some((frame, sound)) = self.tick()? {
                 break Ok((frame, sound));
@@ -135,18 +140,18 @@ impl System {
 
         let frame = self.ppu.tick(&mut self.memory)?;
         if self.ime {
-            let ie = self.memory.read(memory::IE_REG)?;
-            let interrupts = self.memory.read(memory::IF_REG)?;
+            let ie = self.memory.read(mem::IE_REG)?;
+            let interrupts = self.memory.read(mem::IF_REG)?;
             let handlers = [
-                (0b00000001, 0x40),
-                (0b00000010, 0x48),
-                (0b00000100, 0x50),
-                (0b00001000, 0x58),
-                (0b00010000, 0x60),
+                (0b00000001, 0x40), //VBlank
+                (0b00000010, 0x48), //LCD STAT
+                (0b00000100, 0x50), //Timer
+                (0b00001000, 0x58), //Serial
+                (0b00010000, 0x60), //Joypad
             ];
             for (mask, address) in handlers {
                 if (ie & mask) != 0 && (interrupts & mask) != 0 {
-                    self.memory.write(memory::IF_REG, interrupts & !mask)?;
+                    self.memory.write(mem::IF_REG, interrupts & !mask)?;
                     self.ime = false;
                     self.call(A16(address))?;
                     self.op_duration = Duration::Const(5);

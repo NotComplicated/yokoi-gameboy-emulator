@@ -2,7 +2,7 @@ use crate::{
     cart::Cart,
     frame::Rgb555,
     opcode::{self, Op},
-    system::Mode,
+    system::{Joypad, Mode},
 };
 
 pub const ROM_BANK_0_START: u16 = 0x0000;
@@ -92,7 +92,8 @@ pub struct Memory {
     wram: [[u8; 4 * 1024]; 2],
     wram_cgb: Option<Box<[[u8; 4 * 1024]; 6]>>,
     oam: [u8; 160],
-    joypad: u8,
+    joypad: Joypad,
+    joypad_reg: u8,
     serial_transfer: [u8; 2],
     timer_divider: [u8; 4],
     interrupts: u8,
@@ -300,7 +301,8 @@ impl Memory {
             wram: [[0; _]; _],
             wram_cgb: is_cgb.then(|| Box::new([[0; _]; _])),
             oam: [0; _],
-            joypad: 0,
+            joypad: Default::default(),
+            joypad_reg: 0,
             serial_transfer: [0, 0],
             timer_divider: [0, 0, 0, 0],
             interrupts: 0,
@@ -322,7 +324,11 @@ impl Memory {
         }
     }
 
-    pub fn lock(&mut self, lock: Lock) {
+    pub fn set_joypad(&mut self, joypad: Joypad) {
+        self.joypad = joypad;
+    }
+
+    pub fn set_lock(&mut self, lock: Lock) {
         self.lock = lock;
     }
 
@@ -515,7 +521,7 @@ impl Memory {
                 }
             }
 
-            JOYPAD_REG => Ok(as_slice(&self.joypad)),
+            JOYPAD_REG => Ok(as_slice(&self.joypad_reg)),
 
             SERIAL_0_REG => Ok(&self.serial_transfer),
             SERIAL_1_REG => Ok(&self.serial_transfer[1..]),
@@ -804,7 +810,30 @@ impl Memory {
                 }
             }
 
-            JOYPAD_REG => as_slice(&mut self.joypad),
+            JOYPAD_REG => {
+                if let &[selection] = data {
+                    self.joypad_reg =
+                        match (selection & 0b00010000 != 0, selection & 0b00100000 != 0) {
+                            (true, true) => 0x3F,
+                            (true, false) => {
+                                0x2F & if self.joypad.right { 0b11111110 } else { 0xFF }
+                                    & if self.joypad.left { 0b11111101 } else { 0xFF }
+                                    & if self.joypad.up { 0b11111011 } else { 0xFF }
+                                    & if self.joypad.down { 0b11110111 } else { 0xFF }
+                            }
+                            (false, true) => {
+                                0x1F & if self.joypad.a { 0b11111110 } else { 0xFF }
+                                    & if self.joypad.b { 0b11111101 } else { 0xFF }
+                                    & if self.joypad.select { 0b11111011 } else { 0xFF }
+                                    & if self.joypad.start { 0b11110111 } else { 0xFF }
+                            }
+                            (false, false) => 0x0F,
+                        };
+                    return Ok(());
+                } else {
+                    return Err(Error::SegFault);
+                };
+            }
 
             SERIAL_0_REG => &mut self.serial_transfer,
             SERIAL_1_REG => &mut self.serial_transfer[1..],

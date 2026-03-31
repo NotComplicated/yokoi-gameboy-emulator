@@ -1,5 +1,5 @@
 mod audio;
-mod memory;
+mod mem;
 mod opcode;
 mod register;
 mod render;

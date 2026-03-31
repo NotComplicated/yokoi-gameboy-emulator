@@ -1,9 +1,10 @@
 use crate::{
     frame::Frame,
-    memory::{self, LY_REG, Memory},
+    mem::{self, LY_REG, Memory},
     system::Mode,
 };
 
+const X_END: u8 = 160;
 const LY_END: u8 = 154;
 const DOT_END: u16 = 456;
 const VBLANK_LY_START: u8 = 144;
@@ -15,8 +16,9 @@ const HBLANK_DOT_START_MAX: u16 = 369;
 
 const MAP_LOWER_START: u16 = 0x9800;
 const MAP_UPPER_START: u16 = 0x9C00;
-const DATA_LOWER_START: u16 = 0x8000;
-const DATA_UPPER_START: u16 = 0x8800;
+const DATA_0_START: u16 = 0x8000;
+const DATA_1_START: u16 = 0x8800;
+const DATA_2_START: u16 = 0x9000;
 
 const FETCH_STEPS: u8 = 6;
 
@@ -28,7 +30,7 @@ pub struct Ppu {
     enabled: bool,
     window_enabled: bool,
     window_latched: bool,
-    window_counter: u8,
+    window_counter: u16,
     obj_enabled: bool,
     bg_w_priority: bool,
     w_map_addr: u16,
@@ -64,11 +66,11 @@ enum State {
 
 #[derive(Debug)]
 pub enum Error {
-    Memory(memory::Error),
+    Memory(mem::Error),
 }
 
-impl From<memory::Error> for Error {
-    fn from(err: memory::Error) -> Self {
+impl From<mem::Error> for Error {
+    fn from(err: mem::Error) -> Self {
         Self::Memory(err)
     }
 }
@@ -97,11 +99,13 @@ enum Fetcher {
         x: u8,
         progress: u8,
         cached: Option<[Pixel; 8]>,
+        obj_queued: Option<usize>,
     },
     Window {
         x: u8,
         progress: u8,
         cached: Option<[Pixel; 8]>,
+        obj_queued: Option<usize>,
     },
     Object {
         x: u8,
@@ -177,7 +181,7 @@ enum Pixel {
     Object {
         color: u8,
         palette: u8,
-        priority: u8,
+        priority: bool,
     },
 }
 
@@ -198,7 +202,7 @@ impl Ppu {
             bg_w_priority: false,
             w_map_addr: MAP_LOWER_START,
             bg_map_addr: MAP_LOWER_START,
-            bg_w_data_addr: DATA_LOWER_START,
+            bg_w_data_addr: DATA_0_START,
             obj_height: 8,
             lyc_int_enable: false,
             mode_int_enable: [false; _],
@@ -208,7 +212,7 @@ impl Ppu {
 
     pub fn tick(&mut self, memory: &mut Memory) -> Result<Option<Frame>, Error> {
         self.read_lcdc_stat(memory)?;
-        if !self.enabled {
+        if !self.enabled && matches!(self.state, State::Vblank) {
             return Ok(None);
         }
         let mut frame = None;
@@ -218,17 +222,17 @@ impl Ppu {
             State::Hblank => {
                 if self.dot == DOT_END - 1 {
                     self.ly += 1;
-                    memory.write(memory::LY_REG, self.ly)?;
+                    memory.write(mem::LY_REG, self.ly)?;
                     if self.ly < VBLANK_LY_START {
                         if !self.window_latched {
-                            self.window_latched = self.ly == memory.read(memory::WINDOW_Y_REG)?;
+                            self.window_latched = self.ly == memory.read(mem::WINDOW_Y_REG)?;
                         }
                         self.state = State::OamScan {
                             oam: Default::default(),
                         };
                     } else {
                         frame = Some(std::mem::take(&mut self.frame));
-                        memory.write(memory::IF_REG, memory.read(memory::IF_REG)? | 0b00000001)?;
+                        memory.write(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000001)?;
                         self.state = State::Vblank;
                     };
                 }
@@ -245,7 +249,7 @@ impl Ppu {
                             oam: Default::default(),
                         };
                     }
-                    memory.write(memory::LY_REG, self.ly)?;
+                    memory.write(mem::LY_REG, self.ly)?;
                 }
             }
 
@@ -253,11 +257,13 @@ impl Ppu {
                 match self.dot {
                     OAM_SCAN_DOT_START => {
                         memory.write(LY_REG, self.ly)?;
-                        lyc_match = self.ly == memory.read(memory::LYC_REG)?;
-                        memory.lock(memory::Lock::Oam);
+                        lyc_match = self.ly == memory.read(mem::LYC_REG)?;
+                        memory.set_lock(mem::Lock::Oam);
 
                         for &[y, x, tile, flags] in memory.oam().as_chunks::<4>().0 {
-                            if (y..y + self.obj_height).contains(&self.ly) {
+                            if (y.saturating_sub(16)..(y + self.obj_height).saturating_sub(16))
+                                .contains(&self.ly)
+                            {
                                 // This object is within the current scanline, add to OAM buffer
                                 oam.buffer[oam.len] = Object {
                                     y,
@@ -286,7 +292,7 @@ impl Ppu {
                             oam: *oam,
                             progress: FETCH_STEPS,
                         };
-                        memory.lock(memory::Lock::VramOam);
+                        memory.set_lock(mem::Lock::VramOam);
                     }
 
                     _ => {}
@@ -303,8 +309,9 @@ impl Ppu {
                         x: 0,
                         progress: FETCH_STEPS,
                         cached: None,
+                        obj_queued: None,
                     },
-                    discard: memory.read(memory::SCROLL_X_REG)? % 8,
+                    discard: memory.read(mem::SCROLL_X_REG)? % 8,
                 }
             }
 
@@ -320,27 +327,69 @@ impl Ppu {
                 fetcher,
                 discard,
             } => {
-                let scroll_x = memory.read(memory::SCROLL_X_REG)?;
-                let scroll_y = memory.read(memory::SCROLL_Y_REG)?;
+                let x_tile_last = (X_END / 8) - 1;
+                let scroll_x = memory.read(mem::SCROLL_X_REG)?;
+                let scroll_y = memory.read(mem::SCROLL_Y_REG)?;
+                let get_pixels = |lo, hi| {
+                    std::array::from_fn(|i| Pixel::Tile {
+                        color: ((lo >> (7 - i)) % 2) * 2 + ((hi >> (7 - i)) % 2),
+                        palette: 0,
+                        priority: 0,
+                    })
+                };
 
                 match fetcher {
                     Fetcher::Bg {
                         x,
                         cached: Some(pixels),
+                        obj_queued,
                         ..
                     } => {
                         if fifo.push_8(*pixels).is_ok() {
-                            *fetcher = Fetcher::Bg {
-                                x: *x + 1,
-                                progress: FETCH_STEPS,
-                                cached: None,
+                            *fetcher = if let Some(index) = obj_queued {
+                                Fetcher::Object {
+                                    x: *x,
+                                    progress: FETCH_STEPS,
+                                    index: *index,
+                                }
+                            } else {
+                                Fetcher::Bg {
+                                    x: *x + 1,
+                                    progress: FETCH_STEPS,
+                                    cached: None,
+                                    obj_queued: None,
+                                }
+                            };
+                        }
+                    }
+                    Fetcher::Window {
+                        x,
+                        cached: Some(pixels),
+                        obj_queued,
+                        ..
+                    } => {
+                        if fifo.push_8(*pixels).is_ok() {
+                            *fetcher = if let Some(index) = obj_queued {
+                                Fetcher::Object {
+                                    x: *x,
+                                    progress: FETCH_STEPS,
+                                    index: *index,
+                                }
+                            } else {
+                                Fetcher::Window {
+                                    x: *x + 1,
+                                    progress: FETCH_STEPS,
+                                    cached: None,
+                                    obj_queued: None,
+                                }
                             };
                         }
                     }
                     Fetcher::Bg {
                         x,
                         progress: 0,
-                        cached: None,
+                        obj_queued,
+                        ..
                     } => {
                         //TODO CGB reads BG tilemap attrs
                         let row = (scroll_y + self.ly) as u16 >> 3;
@@ -348,30 +397,134 @@ impl Ppu {
                         let bg_tile_addr = self.bg_map_addr + (row << 5) + col;
                         let bg_tile = memory.read(bg_tile_addr)?;
                         let ysub = (scroll_y + self.ly) as u16 % 8;
-                        let data_addr = self.bg_w_data_addr + (bg_tile as u16 * 16) + (ysub * 2);
-                        let (data_lo, data_hi) =
-                            (memory.read(data_addr)?, memory.read(data_addr + 1)?);
-                        let pixels = std::array::from_fn(|i| Pixel::Tile {
-                            color: ((data_lo >> (7 - i)) % 2) * 2 + ((data_hi >> (7 - i)) % 2),
-                            palette: 0,
-                            priority: 0,
-                        });
+                        let data_addr = if self.bg_w_data_addr == DATA_0_START {
+                            DATA_0_START + 16 * (bg_tile as u16)
+                        } else if bg_tile > 127 {
+                            DATA_1_START + 16 * ((bg_tile - 127) as u16)
+                        } else {
+                            DATA_2_START + 16 * (bg_tile as u16)
+                        } + 2 * ysub;
+                        let pixels =
+                            get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
                         if fifo.push_8(pixels).is_ok() {
-                            *fetcher = Fetcher::Bg {
-                                x: *x + 1,
-                                progress: FETCH_STEPS,
-                                cached: None,
+                            *fetcher = if let Some(index) = obj_queued {
+                                Fetcher::Object {
+                                    x: *x,
+                                    progress: FETCH_STEPS,
+                                    index: *index,
+                                }
+                            } else {
+                                Fetcher::Bg {
+                                    x: x_tile_last.min(*x + 1),
+                                    progress: FETCH_STEPS,
+                                    cached: None,
+                                    obj_queued: None,
+                                }
                             };
                         } else {
                             *fetcher = Fetcher::Bg {
                                 x: *x,
                                 progress: 0,
                                 cached: Some(pixels),
+                                obj_queued: None,
                             };
                         }
                     }
-                    Fetcher::Window { progress: 0, .. } => todo!(),
-                    Fetcher::Object { progress: 0, .. } => todo!(),
+                    Fetcher::Window {
+                        x,
+                        progress: 0,
+                        obj_queued,
+                        ..
+                    } => {
+                        //TODO CGB reads window tilemap attrs
+                        let w_tile_addr = self.w_map_addr + 32 * self.window_counter + *x as u16;
+                        let w_tile = memory.read(w_tile_addr)?;
+                        let data_addr = if self.bg_w_data_addr == DATA_0_START {
+                            DATA_0_START + 16 * (w_tile as u16)
+                        } else if w_tile > 127 {
+                            DATA_1_START + 16 * ((w_tile - 127) as u16)
+                        } else {
+                            DATA_2_START + 16 * (w_tile as u16)
+                        } + 2 * (self.window_counter % 8);
+                        let pixels =
+                            get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
+                        if fifo.push_8(pixels).is_ok() {
+                            *fetcher = if let Some(index) = obj_queued {
+                                Fetcher::Object {
+                                    x: *x,
+                                    progress: FETCH_STEPS,
+                                    index: *index,
+                                }
+                            } else {
+                                Fetcher::Window {
+                                    x: x_tile_last.min(*x + 1),
+                                    progress: FETCH_STEPS,
+                                    cached: None,
+                                    obj_queued: None,
+                                }
+                            };
+                        } else {
+                            *fetcher = Fetcher::Window {
+                                x: *x,
+                                progress: 0,
+                                cached: Some(pixels),
+                                obj_queued: None,
+                            };
+                        }
+                    }
+                    Fetcher::Object {
+                        x,
+                        progress: 0,
+                        index,
+                    } => {
+                        let obj = oam.buffer[*index];
+                        let pixels = if self.obj_height == 8 {
+                            //TODO y-flip
+                            let data_addr = DATA_0_START
+                                + 16 * obj.tile as u16
+                                + (self.ly - (obj.y.saturating_sub(16))) as u16;
+                            let mut pixels =
+                                get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
+                            if obj.x_flip {
+                                pixels.reverse();
+                            }
+                            for pixel in &mut pixels {
+                                let Pixel::Tile { color, .. } = *pixel else {
+                                    unreachable!("get_pixel returns Tile")
+                                };
+                                *pixel = Pixel::Object {
+                                    color,
+                                    palette: obj.palette,
+                                    priority: obj.priority,
+                                };
+                            }
+                            pixels
+                        } else {
+                            todo!("16px")
+                        };
+
+                        for (i, &pixel) in pixels.iter().enumerate() {
+                            let fifo_pixel = &mut fifo.buffer[(fifo.front + i) % fifo.buffer.len()];
+                            //TODO reconcile priorities
+                            *fifo_pixel = pixel;
+                        }
+
+                        if *in_window {
+                            *fetcher = Fetcher::Window {
+                                x: *x,
+                                progress: FETCH_STEPS,
+                                cached: None,
+                                obj_queued: None,
+                            };
+                        } else {
+                            *fetcher = Fetcher::Bg {
+                                x: *x,
+                                progress: FETCH_STEPS,
+                                cached: None,
+                                obj_queued: None,
+                            };
+                        }
+                    }
                     Fetcher::Bg { progress, .. }
                     | Fetcher::Window { progress, .. }
                     | Fetcher::Object { progress, .. } => *progress -= 1,
@@ -383,39 +536,79 @@ impl Ppu {
                     *discard -= 1;
                 }
 
-                let theme = crate::frame::Theme::Classic; // TODO
-                let frame_pixel = match (fifo.pop(), self.mode) {
-                    (None, _) => None,
-                    (Some(Pixel::Object { color, palette, .. }), Mode::Dmg) => todo!(),
-                    (Some(Pixel::Object { color, palette, .. }), Mode::Cgb) => todo!(),
-                    (Some(Pixel::Tile { color, .. }), Mode::Dmg) => {
-                        let bgp = memory.read(memory::BG_PALETTE_REG)?;
-                        let color = bgp >> (color * 2) & 0b00000011;
-                        Some(crate::frame::Pixel::from_2bit(color, theme))
-                    }
-                    (Some(Pixel::Tile { color, palette, .. }), Mode::Cgb) => todo!(),
-                };
-                if let Some(frame_pixel) = frame_pixel {
-                    self.frame[(*x as _, self.ly as _)] = frame_pixel;
-                    *x += 1;
-                    if self.window_enabled && self.window_latched && !*in_window {
-                        if memory.read(memory::WINDOW_X_REG)? == *x + 7 {
-                            *fetcher = Fetcher::Window {
-                                x: fetcher.get_x(),
-                                progress: FETCH_STEPS,
-                                cached: None,
-                            };
-                            *in_window = true;
+                let fetching_obj = matches!(
+                    fetcher,
+                    Fetcher::Object { .. }
+                        | Fetcher::Bg {
+                            obj_queued: Some(_),
+                            ..
                         }
+                        | Fetcher::Window {
+                            obj_queued: Some(_),
+                            ..
+                        }
+                );
+                let theme = crate::frame::Theme::Classic; // TODO
+                let frame_pixel = if fetching_obj {
+                    // postpone fifo popping until fetcher is done with object
+                    None
+                } else {
+                    match (fifo.pop(), self.mode) {
+                        (None, _) => None,
+                        (Some(Pixel::Object { color, palette, .. }), Mode::Dmg) => todo!(),
+                        (Some(Pixel::Object { color, palette, .. }), Mode::Cgb) => todo!(),
+                        (Some(Pixel::Tile { color, .. }), Mode::Dmg) => {
+                            let bgp = memory.read(mem::BG_PALETTE_REG)?;
+                            let color = bgp >> (color * 2) & 0b00000011;
+                            Some(crate::frame::Pixel::from_2bit(color, theme))
+                        }
+                        (Some(Pixel::Tile { color, palette, .. }), Mode::Cgb) => todo!(),
                     }
-                    for i in 0..oam.len {
-                        if *x + scroll_x == oam.buffer[i].x.saturating_sub(8) {
-                            *fetcher = Fetcher::Object {
-                                x: fetcher.get_x(),
-                                progress: FETCH_STEPS,
-                                index: i,
-                            };
-                            break;
+                };
+                if let Some(pixel) = frame_pixel {
+                    self.frame[(*x as _, self.ly as _)] = pixel;
+                    *x += 1;
+                    if *x == X_END {
+                        if *in_window {
+                            self.window_counter += 1;
+                        }
+                        self.state = State::Hblank;
+                        memory.set_lock(mem::Lock::Unlocked);
+                    } else {
+                        if self.window_enabled && self.window_latched && !*in_window {
+                            if memory.read(mem::WINDOW_X_REG)? == *x + 7 {
+                                *fetcher = Fetcher::Window {
+                                    x: 0,
+                                    progress: FETCH_STEPS,
+                                    cached: None,
+                                    obj_queued: None,
+                                };
+                                *in_window = true;
+                            }
+                        }
+                        if self.obj_enabled {
+                            for i in 0..oam.len {
+                                if *x + scroll_x == oam.buffer[i].x.saturating_sub(8) {
+                                    if fifo.len >= 8 {
+                                        *fetcher = Fetcher::Object {
+                                            x: fetcher.get_x(),
+                                            progress: FETCH_STEPS,
+                                            index: i,
+                                        };
+                                    } else {
+                                        match fetcher {
+                                            Fetcher::Bg { obj_queued, .. }
+                                            | Fetcher::Window { obj_queued, .. } => {
+                                                *obj_queued = Some(i);
+                                            }
+                                            Fetcher::Object { .. } => {
+                                                unreachable!("can't pop pixels during object fetch")
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -440,7 +633,7 @@ impl Ppu {
             ),
         ];
         memory.write(
-            memory::LCD_STAT_REG,
+            mem::LCD_STAT_REG,
             stat_bits
                 .into_iter()
                 .map(u8::from)
@@ -452,7 +645,7 @@ impl Ppu {
             | [_, _, true, _, _, _, true, false]
             | [_, _, _, true, _, _, false, true]
             | [_, _, _, _, true, _, false, false] => {
-                memory.write(memory::IF_REG, memory.read(memory::IF_REG)? | 0b00000010)?
+                memory.write(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000010)?
             }
             _ => {}
         }
@@ -460,7 +653,7 @@ impl Ppu {
     }
 
     fn read_lcdc_stat(&mut self, memory: &Memory) -> Result<(), Error> {
-        let lcdc = memory.read(memory::LCD_CTRL_REG)?;
+        let lcdc = memory.read(mem::LCD_CTRL_REG)?;
         self.enabled = lcdc & 0b10000000 != 0;
         self.window_enabled = lcdc & 0b00100000 != 0;
         self.obj_enabled = lcdc & 0b00000010 != 0;
@@ -476,12 +669,12 @@ impl Ppu {
             MAP_UPPER_START
         };
         self.bg_w_data_addr = if lcdc & 0b00010000 == 0 {
-            DATA_UPPER_START
+            DATA_2_START
         } else {
-            DATA_LOWER_START
+            DATA_0_START
         };
         self.obj_height = if lcdc & 0b00000100 == 0 { 8 } else { 16 };
-        let stat = memory.read(memory::LCD_STAT_REG)?;
+        let stat = memory.read(mem::LCD_STAT_REG)?;
         self.lyc_int_enable = stat & 0b01000000 != 0;
         self.mode_int_enable = [
             stat & 0b00001000 != 0,
