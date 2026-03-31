@@ -136,7 +136,7 @@ impl System {
         let frame = self.ppu.tick(&mut self.memory)?;
         if self.ime {
             let ie = self.memory.read(memory::IE_REG)?;
-            let interrupts = self.memory.read(memory::INTERRUPTS_REG)?;
+            let interrupts = self.memory.read(memory::IF_REG)?;
             let handlers = [
                 (0b00000001, 0x40),
                 (0b00000010, 0x48),
@@ -146,11 +146,10 @@ impl System {
             ];
             for (mask, address) in handlers {
                 if (ie & mask) != 0 && (interrupts & mask) != 0 {
-                    self.memory
-                        .write(memory::INTERRUPTS_REG, interrupts & !mask)?;
+                    self.memory.write(memory::IF_REG, interrupts & !mask)?;
                     self.ime = false;
                     self.call(A16(address))?;
-                    // TODO use this .call or add to state machine?
+                    self.op_duration = Duration::Const(5);
                     break;
                 }
             }
@@ -214,9 +213,9 @@ impl System {
     fn call(&mut self, A16(a16): A16) -> Result<(), Error> {
         let [pc_upper, pc_lower] = self.reg_set.pc.to_be_bytes();
         self.reg_set.sp -= 1;
-        self.memory.write(self.reg_set.pc, pc_upper)?;
+        self.memory.write(self.reg_set.sp, pc_upper)?;
         self.reg_set.sp -= 1;
-        self.memory.write(self.reg_set.pc, pc_lower)?;
+        self.memory.write(self.reg_set.sp, pc_lower)?;
         self.reg_set.pc = a16;
         Ok(())
     }

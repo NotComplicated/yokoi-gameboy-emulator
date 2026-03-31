@@ -1,7 +1,7 @@
 use crate::{
     frame::Frame,
     memory::{self, LY_REG, Memory},
-    system::{Interrupt, Mode},
+    system::Mode,
 };
 
 const LY_END: u8 = 154;
@@ -35,8 +35,8 @@ pub struct Ppu {
     bg_map_addr: u16,
     bg_w_data_addr: u16,
     obj_height: u8,
-    stat_lyc: bool,
-    stat_modes: [bool; 3],
+    lyc_int_enable: bool,
+    mode_int_enable: [bool; 3],
     frame: Frame,
 }
 
@@ -200,23 +200,19 @@ impl Ppu {
             bg_map_addr: MAP_LOWER_START,
             bg_w_data_addr: DATA_LOWER_START,
             obj_height: 8,
-            stat_lyc: false,
-            stat_modes: [false; 3],
+            lyc_int_enable: false,
+            mode_int_enable: [false; _],
             frame: Default::default(),
         }
     }
 
     pub fn tick(&mut self, memory: &mut Memory) -> Result<Option<Frame>, Error> {
-        let stats_set_before = self
-            .stat_modes
-            .iter()
-            .copied()
-            .chain([self.stat_lyc])
-            .any(|stat| stat);
-        self.read_lcdc(memory)?;
+        self.read_lcdc_stat(memory)?;
+        if !self.enabled {
+            return Ok(None);
+        }
         let mut frame = None;
-
-        // TODO set stat_ members, update STAT reg, set vblank interrupt
+        let mut lyc_match = false;
 
         match &mut self.state {
             State::Hblank => {
@@ -232,10 +228,7 @@ impl Ppu {
                         };
                     } else {
                         frame = Some(std::mem::take(&mut self.frame));
-                        //TODO STAT mode transitions to 01 (Mode 1 — VBlank).
-                        //TODO VBlank Interrupt fires ($FF0F bit 0 is set). This is the primary signal for the CPU to update graphics, run game logic, etc.
-                        //TODO STAT Mode 1 IRQ (bit 4) is not enabled in our scenario → no STAT IRQ.
-                        //TODO LYC=LY: LYC=72, LY=144 → no match.
+                        memory.write(memory::IF_REG, memory.read(memory::IF_REG)? | 0b00000001)?;
                         self.state = State::Vblank;
                     };
                 }
@@ -260,9 +253,7 @@ impl Ppu {
                 match self.dot {
                     OAM_SCAN_DOT_START => {
                         memory.write(LY_REG, self.ly)?;
-                        //TODO STAT mode field (bits 1–0) transitions to 10 (Mode 2).
-                        //TODO The STAT interrupt line is checked. Mode 2 IRQ (bit 5) is not enabled, so no STAT IRQ fires.
-                        //TODO LYC (=72) is compared against LY (=0). No match → STAT bit 2 (LYC=LY flag) cleared.
+                        lyc_match = self.ly == memory.read(memory::LYC_REG)?;
                         memory.lock(memory::Lock::Oam);
 
                         for &[y, x, tile, flags] in memory.oam().as_chunks::<4>().0 {
@@ -295,7 +286,6 @@ impl Ppu {
                             oam: *oam,
                             progress: FETCH_STEPS,
                         };
-                        //TODO STAT mode field transitions to 11 (Mode 3).
                         memory.lock(memory::Lock::VramOam);
                     }
 
@@ -433,23 +423,43 @@ impl Ppu {
         }
 
         self.dot = (self.dot + 1) % DOT_END;
-        let stats_set_after = self
-            .stat_modes
-            .iter()
-            .copied()
-            .chain([self.stat_lyc])
-            .any(|stat| stat);
-        // enable interrupt handler on rising edge
-        if !stats_set_before && stats_set_after {
-            memory.write(
-                memory::INTERRUPTS_REG,
-                memory.read(memory::INTERRUPTS_REG)? | 0b00000010,
-            )?;
+        let stat_bits = [
+            true,
+            self.lyc_int_enable,
+            self.mode_int_enable[2],
+            self.mode_int_enable[1],
+            self.mode_int_enable[0],
+            lyc_match,
+            matches!(
+                self.state,
+                State::OamScan { .. } | State::FirstFetch { .. } | State::Drawing { .. }
+            ),
+            matches!(
+                self.state,
+                State::Vblank | State::FirstFetch { .. } | State::Drawing { .. }
+            ),
+        ];
+        memory.write(
+            memory::LCD_STAT_REG,
+            stat_bits
+                .into_iter()
+                .map(u8::from)
+                .fold(0u8, |acc, b| (acc << 1) | b),
+        )?;
+        // if LY=LYC or a mode interrupt is enabled, and the condition is met, set LCD IF
+        match stat_bits {
+            [_, true, _, _, _, true, _, _]
+            | [_, _, true, _, _, _, true, false]
+            | [_, _, _, true, _, _, false, true]
+            | [_, _, _, _, true, _, false, false] => {
+                memory.write(memory::IF_REG, memory.read(memory::IF_REG)? | 0b00000010)?
+            }
+            _ => {}
         }
         Ok(frame)
     }
 
-    fn read_lcdc(&mut self, memory: &Memory) -> Result<(), Error> {
+    fn read_lcdc_stat(&mut self, memory: &Memory) -> Result<(), Error> {
         let lcdc = memory.read(memory::LCD_CTRL_REG)?;
         self.enabled = lcdc & 0b10000000 != 0;
         self.window_enabled = lcdc & 0b00100000 != 0;
@@ -471,6 +481,13 @@ impl Ppu {
             DATA_LOWER_START
         };
         self.obj_height = if lcdc & 0b00000100 == 0 { 8 } else { 16 };
+        let stat = memory.read(memory::LCD_STAT_REG)?;
+        self.lyc_int_enable = stat & 0b01000000 != 0;
+        self.mode_int_enable = [
+            stat & 0b00001000 != 0,
+            stat & 0b00010000 != 0,
+            stat & 0b00100000 != 0,
+        ];
         Ok(())
     }
 }

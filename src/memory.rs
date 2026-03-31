@@ -26,7 +26,7 @@ pub const DIVIDER_REG: u16 = 0xFF04;
 pub const TIMER_COUNT_REG: u16 = 0xFF05;
 pub const TIMER_MOD_REG: u16 = 0xFF06;
 pub const TIMER_CTRL_REG: u16 = 0xFF07;
-pub const INTERRUPTS_REG: u16 = 0xFF0F;
+pub const IF_REG: u16 = 0xFF0F;
 pub const CH1_SWEEP_REG: u16 = 0xFF10;
 pub const CH1_DUTY_LENGTH_REG: u16 = 0xFF11;
 pub const CH1_VOLUME_ENV_REG: u16 = 0xFF12;
@@ -525,7 +525,7 @@ impl Memory {
             TIMER_MOD_REG => Ok(&self.timer_divider[2..]),
             TIMER_CTRL_REG => Ok(&self.timer_divider[3..]),
 
-            INTERRUPTS_REG => Ok(as_slice(&self.interrupts)),
+            IF_REG => Ok(as_slice(&self.interrupts)),
 
             CH1_SWEEP_REG => Ok(as_slice(&self.audio.ch1_sweep)),
             CH1_DUTY_LENGTH_REG => Ok(as_slice(&self.audio.ch1_duty_length)),
@@ -814,7 +814,7 @@ impl Memory {
             TIMER_MOD_REG => &mut self.timer_divider[2..],
             TIMER_CTRL_REG => &mut self.timer_divider[3..],
 
-            INTERRUPTS_REG => as_slice(&mut self.interrupts),
+            IF_REG => as_slice(&mut self.interrupts),
 
             CH1_SWEEP_REG => as_slice(&mut self.audio.ch1_sweep),
             CH1_DUTY_LENGTH_REG => as_slice(&mut self.audio.ch1_duty_length),
