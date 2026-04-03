@@ -2,7 +2,6 @@ mod tui;
 
 use clap::{Parser, Subcommand};
 use std::{io::Write, path::PathBuf};
-use tui::GameScreen;
 
 #[derive(Parser)]
 struct Cli {
@@ -39,7 +38,7 @@ enum Commands {
     },
 }
 
-enum Error {
+pub enum Error {
     Io(std::io::Error),
     System(yokoi::system::Error),
     Cart(yokoi::cart::Error),

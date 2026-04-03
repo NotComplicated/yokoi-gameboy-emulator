@@ -1,4 +1,6 @@
+use crate::Error;
 use ratatui::{
+    DefaultTerminal,
     prelude::*,
     widgets::{Block, Widget},
 };
