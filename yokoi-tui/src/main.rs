@@ -1,7 +1,12 @@
 mod tui;
 
 use clap::{Parser, Subcommand};
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
+use tracing::debug;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 struct Cli {
@@ -13,6 +18,14 @@ struct Cli {
 enum Commands {
     /// Run a cartridge in the emulator
     Run {
+        /// Don't show terminal UI. For use within a debugger
+        #[arg(long)]
+        debug: bool,
+
+        /// Short-circuit the emulator after N t-cycles
+        #[arg(long)]
+        short_circuit: Option<u64>,
+
         /// Path to boot ROM file
         #[arg(short, long)]
         boot: PathBuf,
@@ -54,6 +67,7 @@ fn main() {
     match run() {
         Ok(()) => {}
         Err(Error::Io(err)) => eprintln!("Error: {err}"),
+        Err(Error::System(yokoi::system::Error::ShortCircuit)) => eprintln!("- Short-circuited -"),
         Err(Error::System(err)) => eprintln!("Internal system error: {err:?}"),
         Err(Error::Cart(yokoi::cart::Error(err))) => eprintln!("Error while parsing cart: {err}"),
     }
@@ -64,12 +78,55 @@ fn run() -> Result<(), Error> {
     let mut out = std::io::stdout().lock();
 
     match cli.command {
-        Commands::Run { boot, cart } => {
+        Commands::Run {
+            boot,
+            debug,
+            short_circuit,
+            cart,
+        } => {
             let boot_rom_data = std::fs::read(&boot)?;
             let cart_data = std::fs::read(&cart)?;
             let cart = yokoi::cart::Cart::new(cart_data).map_err(Error::Cart)?;
-            let system = yokoi::system::System::init(boot_rom_data, cart).map_err(Error::System)?;
-            let game_screen = GameScreen::default();
+            let mut system = yokoi::system::System::init_options(
+                boot_rom_data,
+                cart,
+                yokoi::system::Options { short_circuit },
+            )
+            .map_err(Error::System)?;
+            if debug {
+                tracing_subscriber::fmt()
+                    .with_env_filter(EnvFilter::from_default_env())
+                    .without_time()
+                    .with_level(false)
+                    .with_target(false)
+                    .fmt_fields(tracing_subscriber::fmt::format::debug_fn(
+                        |writer, field, value| writeln!(writer, "{}: {value:?}", field.name()),
+                    ))
+                    .with_writer(|| {
+                        struct Writer(io::StdoutLock<'static>);
+                        impl io::Write for Writer {
+                            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                                self.0.write(buf).map_err(|_| std::process::exit(0))
+                            }
+                            fn flush(&mut self) -> io::Result<()> {
+                                self.0.flush()
+                            }
+                        }
+                        Writer(io::stdout().lock())
+                    })
+                    .init();
+                for i in 0.. {
+                    debug!(frame = i);
+                    system
+                        .next_frame(Default::default())
+                        .map_err(Error::System)?;
+                }
+            } else {
+                let term = ratatui::try_init()?;
+                let run_result = tui::run(term, system);
+                ratatui::restore();
+                run_result?;
+            }
         }
 
         Commands::CartInfo { cart } => {

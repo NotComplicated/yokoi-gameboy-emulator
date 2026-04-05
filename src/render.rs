@@ -10,9 +10,6 @@ const DOT_END: u16 = 456;
 const VBLANK_LY_START: u8 = 144;
 const OAM_SCAN_DOT_START: u16 = 0;
 const OAM_SCAN_DOT_END: u16 = 79;
-const DRAWING_DOT_START: u16 = 80;
-const HBLANK_DOT_START_MIN: u16 = 252;
-const HBLANK_DOT_START_MAX: u16 = 369;
 
 const MAP_LOWER_START: u16 = 0x9800;
 const MAP_UPPER_START: u16 = 0x9C00;
@@ -212,7 +209,7 @@ impl Ppu {
 
     pub fn tick(&mut self, memory: &mut Memory) -> Result<Option<Frame>, Error> {
         self.read_lcdc_stat(memory)?;
-        if !self.enabled && matches!(self.state, State::Vblank) {
+        if !self.enabled {
             return Ok(None);
         }
         let mut frame = None;

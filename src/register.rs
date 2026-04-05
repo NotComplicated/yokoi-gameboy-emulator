@@ -1,4 +1,4 @@
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct RegisterSet {
     pub a: u8,
     pub f: u8,
@@ -79,5 +79,23 @@ impl RegisterSet {
 
     fn set_flag(&mut self, set: bool, mask: u8) {
         self.f = (self.f & !mask) + if set { mask } else { 0 };
+    }
+}
+
+impl std::fmt::Debug for RegisterSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "a={:02X} b={:02X} c={:02X} d={:02X} e={:02X} hl={:04X} sp={:04X} pc={:04X} f={:08b}",
+            self.a,
+            self.b,
+            self.c,
+            self.d,
+            self.e,
+            self.hl(),
+            self.sp,
+            self.pc,
+            self.f
+        )
     }
 }

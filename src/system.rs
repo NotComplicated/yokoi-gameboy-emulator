@@ -1,3 +1,5 @@
+use tracing::trace;
+
 use crate::{
     audio::Apu,
     cart::Cart,
@@ -6,9 +8,11 @@ use crate::{
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
+    util::Hex,
 };
 
 pub struct System {
+    options: Options,
     reg_set: RegisterSet,
     memory: Memory,
     current_op: Op,
@@ -31,10 +35,16 @@ pub struct Joypad {
     pub b: bool,
 }
 
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Options {
+    pub short_circuit: Option<u64>,
+}
+
 #[derive(Debug)]
 pub enum Error {
     Memory(mem::Error),
     Render(render::Error),
+    ShortCircuit,
 }
 
 impl From<mem::Error> for Error {
@@ -71,12 +81,17 @@ enum HandleOp {
 
 impl System {
     pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Result<Self, Error> {
+        Self::init_options(boot_rom, cart, Default::default())
+    }
+
+    pub fn init_options(boot_rom: Vec<u8>, cart: Cart, options: Options) -> Result<Self, Error> {
         let mode = Mode::Dmg;
         let memory = Memory::init(boot_rom, cart, mode);
         let (current_op, pc) = memory.read_op(0)?;
         let op_duration = current_op.properties().duration;
 
         Ok(Self {
+            options,
             reg_set: RegisterSet {
                 pc,
                 ..Default::default()
@@ -101,6 +116,11 @@ impl System {
     }
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {
+        match &mut self.options.short_circuit {
+            Some(0) => return Err(Error::ShortCircuit),
+            Some(sc) => *sc -= 1,
+            _ => {}
+        }
         match (self.state, self.op_duration) {
             (State::Running, Duration::Const(1)) => {
                 self.handle_op()?;
@@ -221,6 +241,7 @@ impl System {
     }
 
     fn handle_op(&mut self) -> Result<HandleOp, Error> {
+        trace!(op = ?Hex(self.current_op), registers = ?self.reg_set);
         match self.current_op {
             Op::Nop => {}
             Op::LdR16N16(r16, N16(n16)) => self.write_r16(r16, n16),
@@ -364,7 +385,7 @@ impl System {
             }
             Op::JrCondE8(..) => return Ok(HandleOp::FalseCond),
             Op::Stop(_) => self.state = State::Stopped,
-            Op::LdR8R8(r8_src, r8_dest) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
+            Op::LdR8R8(r8_dest, r8_src) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
             Op::Halt => self.state = State::Halted,
             Op::AddR8(r8) => {
                 let operand = self.read_r8(r8)?;

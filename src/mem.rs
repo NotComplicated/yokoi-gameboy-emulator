@@ -1,8 +1,11 @@
+use tracing::trace;
+
 use crate::{
     cart::Cart,
     frame::Rgb555,
     opcode::{self, Op},
     system::{Joypad, Mode},
+    util::Hex,
 };
 
 pub const ROM_BANK_0_START: u16 = 0x0000;
@@ -80,7 +83,6 @@ pub const IE_REG: u16 = 0xFFFF;
 
 type Sram = Box<[u8; 8 * 1024]>;
 
-#[derive(Debug)]
 pub struct Memory {
     mode: Mode,
     boot_rom: Vec<u8>,
@@ -637,6 +639,7 @@ impl Memory {
     }
 
     pub fn write_slice(&mut self, addr: u16, data: &[u8]) -> Result<(), Error> {
+        trace!(addr = ?Hex(addr), data = ?Hex(data), "mem write");
         fn as_slice(byte: &mut u8) -> &mut [u8] {
             std::slice::from_mut(byte)
         }

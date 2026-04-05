@@ -9,3 +9,4 @@ description = "A gameboy emulation library."
 license = "MIT"
 
 [dependencies]
+tracing = "0.1.44"

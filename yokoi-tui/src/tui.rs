@@ -5,6 +5,20 @@ use ratatui::{
     widgets::{Block, Widget},
 };
 
+pub fn run(mut term: DefaultTerminal, mut system: yokoi::system::System) -> Result<(), Error> {
+    let mut screen = GameScreen::default();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(1000 / 60));
+        screen.frame = system
+            .next_frame(Default::default())
+            .map_err(Error::System)?;
+        term.draw(|f| {
+            f.render_widget(&screen, f.area());
+        })
+        .map_err(Error::Io)?;
+    }
+}
+
 #[derive(Default)]
 pub struct GameScreen {
     pub frame: yokoi::frame::Frame,
