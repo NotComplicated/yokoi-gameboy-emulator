@@ -393,7 +393,7 @@ impl Ppu {
                         let row = (scroll_y + self.ly) as u16 >> 3;
                         let col = ((scroll_x >> 3) + *x) as u16;
                         let bg_tile_addr = self.bg_map_addr + (row << 5) + col;
-                        let bg_tile = memory.read(bg_tile_addr)?;
+                        let bg_tile = memory.read_ppu(bg_tile_addr)?;
                         let ysub = (scroll_y + self.ly) as u16 % 8;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (bg_tile as u16)
@@ -402,8 +402,10 @@ impl Ppu {
                         } else {
                             DATA_2_START + 16 * (bg_tile as u16)
                         } + 2 * ysub;
-                        let pixels =
-                            get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
+                        let pixels = get_pixels(
+                            memory.read_ppu(data_addr)?,
+                            memory.read_ppu(data_addr + 1)?,
+                        );
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
@@ -436,7 +438,7 @@ impl Ppu {
                     } => {
                         //TODO CGB reads window tilemap attrs
                         let w_tile_addr = self.w_map_addr + 32 * self.window_counter + *x as u16;
-                        let w_tile = memory.read(w_tile_addr)?;
+                        let w_tile = memory.read_ppu(w_tile_addr)?;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (w_tile as u16)
                         } else if w_tile > 127 {
@@ -444,8 +446,10 @@ impl Ppu {
                         } else {
                             DATA_2_START + 16 * (w_tile as u16)
                         } + 2 * (self.window_counter % 8);
-                        let pixels =
-                            get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
+                        let pixels = get_pixels(
+                            memory.read_ppu(data_addr)?,
+                            memory.read_ppu(data_addr + 1)?,
+                        );
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
@@ -481,8 +485,10 @@ impl Ppu {
                             let data_addr = DATA_0_START
                                 + 16 * obj.tile as u16
                                 + (self.ly - (obj.y.saturating_sub(16))) as u16;
-                            let mut pixels =
-                                get_pixels(memory.read(data_addr)?, memory.read(data_addr + 1)?);
+                            let mut pixels = get_pixels(
+                                memory.read_ppu(data_addr)?,
+                                memory.read_ppu(data_addr + 1)?,
+                            );
                             if obj.x_flip {
                                 pixels.reverse();
                             }
@@ -546,7 +552,7 @@ impl Ppu {
                             ..
                         }
                 );
-                let theme = crate::frame::Theme::Classic; // TODO
+                let theme = crate::frame::Theme::Grayscale; //TODO
                 let frame_pixel = if fetching_obj {
                     // postpone fifo popping until fetcher is done with object
                     None

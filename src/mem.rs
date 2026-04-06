@@ -361,11 +361,15 @@ impl Memory {
     }
 
     pub fn read(&self, addr: u16) -> Result<u8, Error> {
-        self.read_inner(addr).map(|mem| mem[0])
+        self.read_inner(addr, false).map(|mem| mem[0])
+    }
+
+    pub fn read_ppu(&self, addr: u16) -> Result<u8, Error> {
+        self.read_inner(addr, true).map(|mem| mem[0])
     }
 
     pub fn read_op(&self, pc: u16) -> Result<(Op, u16), Error> {
-        let mem = self.read_inner(pc)?;
+        let mem = self.read_inner(pc, false)?;
         Op::read(mem)
             .map(|(op, new_mem)| (op, pc + (mem.len() - new_mem.len()) as u16))
             .map_err(Error::Op)
@@ -379,7 +383,7 @@ impl Memory {
         self.write_slice(addr, &[data])
     }
 
-    fn read_inner(&self, addr: u16) -> Result<&[u8], Error> {
+    fn read_inner(&self, addr: u16, ppu: bool) -> Result<&[u8], Error> {
         fn as_slice(byte: &u8) -> &[u8] {
             std::slice::from_ref(byte)
         }
@@ -457,7 +461,7 @@ impl Memory {
             },
 
             VRAM_START..SRAM_START => {
-                if self.lock == Lock::VramOam {
+                if !ppu && self.lock == Lock::VramOam {
                     Ok(&[0xFF; 16])
                 } else {
                     match self.mode {
@@ -539,10 +543,10 @@ impl Memory {
                 },
             },
 
-            ERAM_START..OAM_START => self.read_inner(addr - (ERAM_START - WRAM_BANK_0_START)),
+            ERAM_START..OAM_START => self.read_inner(addr - (ERAM_START - WRAM_BANK_0_START), ppu),
 
             OAM_START..OAM_END => {
-                if self.lock == Lock::Unlocked {
+                if ppu || self.lock == Lock::Unlocked {
                     Ok(&self.oam[(addr - OAM_START).into()..])
                 } else {
                     Ok(&[0xFF; 16])
@@ -618,7 +622,7 @@ impl Memory {
 
             BG_COLOR_PALETTE_SPEC_REG => Ok(as_slice(&self.lcd.cgb_bg_palette_spec)),
             BG_COLOR_PALETTE_DATA_REG => {
-                if self.lock == Lock::VramOam {
+                if !ppu && self.lock == Lock::VramOam {
                     Ok(&[0xFF; 16])
                 } else {
                     let spec = self.read(BG_COLOR_PALETTE_SPEC_REG)?;
@@ -631,7 +635,7 @@ impl Memory {
             }
             OBJ_COLOR_PALETTE_SPEC_REG => Ok(as_slice(&self.lcd.cgb_obj_palette_spec)),
             OBJ_COLOR_PALETTE_DATA_REG => {
-                if self.lock == Lock::VramOam {
+                if !ppu && self.lock == Lock::VramOam {
                     Ok(&[0xFF; 16])
                 } else {
                     let spec = self.read(OBJ_COLOR_PALETTE_SPEC_REG)?;

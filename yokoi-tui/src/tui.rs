@@ -34,7 +34,7 @@ impl Widget for &GameScreen {
         let area = self.block.inner(area);
         let rows = (0..).take_while(|&y| y < area.height).zip(&*self.frame.0);
         for (y, row) in rows {
-            let pixels = (0..).take_while(|&x| x < area.height).zip(row);
+            let pixels = (0..).take_while(|&x| x < area.width).zip(row);
             for (x, pixel) in pixels {
                 let yokoi::frame::Pixel(r, g, b) = pixel.get();
                 buf.cell_mut((area.x + x, area.y + y)).unwrap().bg = Color::Rgb(r, g, b);

@@ -15,19 +15,19 @@ pub(crate) type Rgb555 = [u8; 2];
 
 impl Pixel {
     fn white() -> Self {
-        Self(0, 0, 0)
+        Self(255, 255, 255)
     }
 
     fn light() -> Self {
-        Self(85, 85, 85)
-    }
-
-    fn dark() -> Self {
         Self(170, 170, 170)
     }
 
+    fn dark() -> Self {
+        Self(85, 85, 85)
+    }
+
     fn black() -> Self {
-        Self(255, 255, 255)
+        Self(0, 0, 0)
     }
 
     fn lightest_green() -> Self {
