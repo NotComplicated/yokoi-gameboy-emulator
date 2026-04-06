@@ -102,6 +102,7 @@ pub struct Memory {
     audio: Audio,
     lcd: Lcd,
     oam_dma: u8,
+    oam_dma_ticks: Option<u16>,
     cgb_key0: u8,
     cgb_key1: u8,
     cgb_vram_bank: u8,
@@ -311,6 +312,7 @@ impl Memory {
             audio: Default::default(),
             lcd: Default::default(),
             oam_dma: 0,
+            oam_dma_ticks: None,
             cgb_key0: 0,
             cgb_key1: 0,
             cgb_vram_bank: 0,
@@ -324,6 +326,21 @@ impl Memory {
             hram: [0; _],
             ie: 0,
         }
+    }
+
+    pub fn tick(&mut self) -> Result<(), Error> {
+        match &mut self.oam_dma_ticks {
+            Some(0) => {
+                self.oam_dma_ticks = None;
+                let source = (self.oam_dma as u16) << 8;
+                for offset in 0..160 {
+                    self.write(OAM_START + offset, self.read(source + offset)?)?;
+                }
+            }
+            Some(ticks) => *ticks -= 1,
+            None => {}
+        }
+        Ok(())
     }
 
     pub fn set_joypad(&mut self, joypad: Joypad) {
@@ -890,7 +907,10 @@ impl Memory {
             LY_REG => as_slice(&mut self.lcd.ly),
             LYC_REG => as_slice(&mut self.lcd.lyc),
 
-            OAM_DMA_REG => as_slice(&mut self.oam_dma),
+            OAM_DMA_REG => {
+                self.oam_dma_ticks = Some(640);
+                as_slice(&mut self.oam_dma)
+            }
 
             BG_PALETTE_REG => as_slice(&mut self.lcd.bg_palette),
             OBJ_PALETTE_0_REG => &mut self.lcd.obj_palettes,

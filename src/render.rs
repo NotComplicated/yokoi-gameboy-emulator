@@ -36,6 +36,7 @@ pub struct Ppu {
     obj_height: u8,
     lyc_int_enable: bool,
     mode_int_enable: [bool; 3],
+    prev_stat: u8,
     frame: Frame,
 }
 
@@ -203,6 +204,7 @@ impl Ppu {
             obj_height: 8,
             lyc_int_enable: false,
             mode_int_enable: [false; _],
+            prev_stat: 0,
             frame: Default::default(),
         }
     }
@@ -253,7 +255,6 @@ impl Ppu {
             State::OamScan { oam } => {
                 match self.dot {
                     OAM_SCAN_DOT_START => {
-                        memory.write(LY_REG, self.ly)?;
                         lyc_match = self.ly == memory.read(mem::LYC_REG)?;
                         memory.set_lock(mem::Lock::Oam);
 
@@ -629,13 +630,14 @@ impl Ppu {
                 State::Vblank | State::FirstFetch { .. } | State::Drawing { .. }
             ),
         ];
-        memory.write(
-            mem::LCD_STAT_REG,
-            stat_bits
-                .into_iter()
-                .map(u8::from)
-                .fold(0u8, |acc, b| (acc << 1) | b),
-        )?;
+        let stat = stat_bits
+            .into_iter()
+            .map(u8::from)
+            .fold(0u8, |acc, b| (acc << 1) | b);
+        if stat != self.prev_stat {
+            memory.write(mem::LCD_STAT_REG, stat)?;
+            self.prev_stat = stat;
+        }
         // if LY=LYC or a mode interrupt is enabled, and the condition is met, set LCD IF
         match stat_bits {
             [_, true, _, _, _, true, _, _]

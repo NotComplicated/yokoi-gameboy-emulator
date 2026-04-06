@@ -121,6 +121,8 @@ impl System {
             Some(sc) => *sc -= 1,
             _ => {}
         }
+        self.memory.tick()?;
+        let frame = self.ppu.tick(&mut self.memory)?;
         match (self.state, self.op_duration) {
             (State::Running, Duration::Const(1)) => {
                 self.handle_op()?;
@@ -153,7 +155,6 @@ impl System {
             (State::Halted | State::Stopped, _) => todo!("halt / stop handling"),
         }
 
-        let frame = self.ppu.tick(&mut self.memory)?;
         if self.ime {
             let ie = self.memory.read(mem::IE_REG)?;
             let interrupts = self.memory.read(mem::IF_REG)?;
@@ -321,14 +322,16 @@ impl System {
                 self.reg_set.a = self.reg_set.a.rotate_right(1);
             }
             Op::Rla => {
+                let carry = self.reg_set.carry() as u8;
                 self.reg_set.f = 0x00;
                 self.reg_set.set_carry(self.reg_set.a & 0b10000000 != 0);
-                self.reg_set.a = (self.reg_set.a << 1) + self.reg_set.carry() as u8;
+                self.reg_set.a = (self.reg_set.a << 1) + carry;
             }
             Op::Rra => {
+                let carry = self.reg_set.carry() as u8;
                 self.reg_set.f = 0x00;
                 self.reg_set.set_carry(self.reg_set.a % 2 == 1);
-                self.reg_set.a = ((self.reg_set.carry() as u8) << 7) + (self.reg_set.a >> 1);
+                self.reg_set.a = (carry << 7) + (self.reg_set.a >> 1);
             }
             Op::Daa => {
                 let tens = if (!self.reg_set.sub() && self.reg_set.a > 0x99) || self.reg_set.carry()
