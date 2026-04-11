@@ -101,7 +101,6 @@ pub struct Memory {
     joypad_reg: u8,
     serial_transfer: [u8; 2],
     timer: Timer,
-    timer_buf: [Cell<u8>; 1],
     interrupts: u8,
     audio: Audio,
     lcd: Lcd,
@@ -312,7 +311,6 @@ impl Memory {
             joypad_reg: 0,
             serial_transfer: [0, 0],
             timer: Default::default(),
-            timer_buf: [Cell::new(0)],
             interrupts: 0,
             audio: Default::default(),
             lcd: Default::default(),
@@ -856,29 +854,51 @@ impl Memory {
             }
 
             JOYPAD_REG => {
-                if let &[selection] = data {
-                    // bits are inverted. 0 = on, 1 = off
-                    self.joypad_reg =
-                        match (selection & 0b00100000 != 0, selection & 0b00010000 != 0) {
-                            (true, true) => 0x3F,
-                            (true, false) => {
-                                0x2F & if self.joypad.right { 0b11111110 } else { 0xFF }
-                                    & if self.joypad.left { 0b11111101 } else { 0xFF }
-                                    & if self.joypad.up { 0b11111011 } else { 0xFF }
-                                    & if self.joypad.down { 0b11110111 } else { 0xFF }
-                            }
-                            (false, true) => {
-                                0x1F & if self.joypad.a { 0b11111110 } else { 0xFF }
-                                    & if self.joypad.b { 0b11111101 } else { 0xFF }
-                                    & if self.joypad.select { 0b11111011 } else { 0xFF }
-                                    & if self.joypad.start { 0b11110111 } else { 0xFF }
-                            }
-                            (false, false) => 0x0F,
-                        };
-                    return Ok(());
-                } else {
+                let &[selection] = data else {
                     return Err(Error::SegFault);
                 };
+                // bits are inverted. 0 = on, 1 = off
+                self.joypad_reg = match (selection & 0b00100000 != 0, selection & 0b00010000 != 0) {
+                    (true, true) => 0xFF,
+                    (true, false) => {
+                        0b11101111
+                            & if self.joypad.right { 0b11111110 } else { 0xFF }
+                            & if self.joypad.left { 0b11111101 } else { 0xFF }
+                            & if self.joypad.up { 0b11111011 } else { 0xFF }
+                            & if self.joypad.down { 0b11110111 } else { 0xFF }
+                    }
+                    (false, true) => {
+                        0b11011111
+                            & if self.joypad.a { 0b11111110 } else { 0xFF }
+                            & if self.joypad.b { 0b11111101 } else { 0xFF }
+                            & if self.joypad.select { 0b11111011 } else { 0xFF }
+                            & if self.joypad.start { 0b11110111 } else { 0xFF }
+                    }
+                    (false, false) => {
+                        0b11001111
+                            & if self.joypad.right || self.joypad.a {
+                                0b11111110
+                            } else {
+                                0xFF
+                            }
+                            & if self.joypad.left || self.joypad.b {
+                                0b11111101
+                            } else {
+                                0xFF
+                            }
+                            & if self.joypad.up || self.joypad.select {
+                                0b11111011
+                            } else {
+                                0xFF
+                            }
+                            & if self.joypad.down || self.joypad.start {
+                                0b11110111
+                            } else {
+                                0xFF
+                            }
+                    }
+                };
+                return Ok(());
             }
 
             SERIAL_0_REG => &mut self.serial_transfer,

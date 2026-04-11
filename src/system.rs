@@ -79,6 +79,10 @@ enum HandleOp {
     FalseCond,
 }
 
+thread_local! {
+    static STOPPED_FRAME: Frame = Frame::default();
+}
+
 impl System {
     pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Result<Self, Error> {
         Self::init_options(boot_rom, cart, Default::default())
@@ -87,13 +91,13 @@ impl System {
     pub fn init_options(boot_rom: Vec<u8>, cart: Cart, options: Options) -> Result<Self, Error> {
         let mode = Mode::Dmg;
         let memory = Memory::init(boot_rom, cart, mode);
-        let (current_op, pc) = memory.read_op(0)?;
+        let (current_op, next_pc) = memory.read_op(0)?;
         let op_duration = current_op.properties().duration;
 
         Ok(Self {
             options,
             reg_set: RegisterSet {
-                pc,
+                next_pc,
                 ..Default::default()
             },
             memory,
@@ -126,7 +130,8 @@ impl System {
         match (self.state, self.op_duration) {
             (State::Running, Duration::Const(1)) => {
                 self.handle_op()?;
-                (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                self.reg_set.pc = self.reg_set.next_pc;
+                (self.current_op, self.reg_set.next_pc) = self.memory.read_op(self.reg_set.pc)?;
                 self.op_duration = self.current_op.properties().duration;
             }
             (State::Running, Duration::Const(ticks)) => {
@@ -137,7 +142,9 @@ impl System {
                     self.state = State::CondDelay(ticks - 1);
                 }
                 HandleOp::FalseCond => {
-                    (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                    self.reg_set.pc = self.reg_set.next_pc;
+                    (self.current_op, self.reg_set.next_pc) =
+                        self.memory.read_op(self.reg_set.pc)?;
                     self.op_duration = self.current_op.properties().duration;
                 }
             },
@@ -146,13 +153,28 @@ impl System {
             }
             (State::CondDelay(1), _) => {
                 self.state = State::Running;
-                (self.current_op, self.reg_set.pc) = self.memory.read_op(self.reg_set.pc)?;
+                self.reg_set.pc = self.reg_set.next_pc;
+                (self.current_op, self.reg_set.next_pc) = self.memory.read_op(self.reg_set.pc)?;
                 self.op_duration = self.current_op.properties().duration;
             }
             (State::CondDelay(ticks), _) => {
                 self.state = State::CondDelay(ticks - 1);
             }
-            (State::Halted | State::Stopped, _) => todo!("halt / stop handling"),
+            (State::Halted, _) => {
+                let ie = self.memory.read(mem::IE_REG)?;
+                let interrupts = self.memory.read(mem::IF_REG)?;
+                if (interrupts & ie) != 0 {
+                    self.state = State::Running;
+                    self.op_duration = Duration::Const(1);
+                }
+            }
+            (State::Stopped, _)
+                if self.memory.read(mem::JOYPAD_REG)? & 0b00001111 != 0b00001111 =>
+            {
+                self.state = State::Running;
+                self.op_duration = Duration::Const(1);
+            }
+            (State::Stopped, _) => return Ok(Some(STOPPED_FRAME.with(Clone::clone))),
         }
 
         if self.ime {
@@ -170,6 +192,9 @@ impl System {
                     self.memory.write(mem::IF_REG, interrupts & !mask)?;
                     self.ime = false;
                     self.call(A16(address))?;
+                    (self.current_op, self.reg_set.next_pc) =
+                        self.memory.read_op(self.reg_set.pc)?;
+                    self.state = State::Running;
                     self.op_duration = Duration::Const(5);
                     break;
                 }

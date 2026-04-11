@@ -10,6 +10,7 @@ pub struct RegisterSet {
     pub l: u8,
     pub sp: u16,
     pub pc: u16,
+    pub next_pc: u16,
 }
 
 impl RegisterSet {
