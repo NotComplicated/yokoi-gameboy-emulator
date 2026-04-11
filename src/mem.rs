@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use tracing::trace;
 
 use crate::{
@@ -5,6 +7,7 @@ use crate::{
     frame::Rgb555,
     opcode::{self, Op},
     system::{Joypad, Mode},
+    timer::Timer,
     util::Hex,
 };
 
@@ -97,7 +100,8 @@ pub struct Memory {
     joypad: Joypad,
     joypad_reg: u8,
     serial_transfer: [u8; 2],
-    timer_divider: [u8; 4],
+    timer: Timer,
+    timer_buf: [Cell<u8>; 1],
     interrupts: u8,
     audio: Audio,
     lcd: Lcd,
@@ -307,7 +311,8 @@ impl Memory {
             joypad: Default::default(),
             joypad_reg: 0,
             serial_transfer: [0, 0],
-            timer_divider: [0, 0, 0, 0],
+            timer: Default::default(),
+            timer_buf: [Cell::new(0)],
             interrupts: 0,
             audio: Default::default(),
             lcd: Default::default(),
@@ -329,6 +334,13 @@ impl Memory {
     }
 
     pub fn tick(&mut self) -> Result<(), Error> {
+        let timer_result = self.timer.tick();
+        if timer_result.interrupt {
+            self.interrupts |= 0b00000100;
+        }
+        if timer_result.div_apu {
+            // TODO
+        }
         match &mut self.oam_dma_ticks {
             Some(0) => {
                 self.oam_dma_ticks = None;
@@ -558,10 +570,10 @@ impl Memory {
             SERIAL_0_REG => Ok(&self.serial_transfer),
             SERIAL_1_REG => Ok(&self.serial_transfer[1..]),
 
-            DIVIDER_REG => Ok(&self.timer_divider),
-            TIMER_COUNT_REG => Ok(&self.timer_divider[1..]),
-            TIMER_MOD_REG => Ok(&self.timer_divider[2..]),
-            TIMER_CTRL_REG => Ok(&self.timer_divider[3..]),
+            DIVIDER_REG => Ok(self.timer.read_div()),
+            TIMER_COUNT_REG => Ok(as_slice(&self.timer.tima)),
+            TIMER_MOD_REG => Ok(as_slice(&self.timer.tma)),
+            TIMER_CTRL_REG => Ok(as_slice(&self.timer.tac)),
 
             IF_REG => Ok(as_slice(&self.interrupts)),
 
@@ -872,10 +884,13 @@ impl Memory {
             SERIAL_0_REG => &mut self.serial_transfer,
             SERIAL_1_REG => &mut self.serial_transfer[1..],
 
-            DIVIDER_REG => &mut self.timer_divider,
-            TIMER_COUNT_REG => &mut self.timer_divider[1..],
-            TIMER_MOD_REG => &mut self.timer_divider[2..],
-            TIMER_CTRL_REG => &mut self.timer_divider[3..],
+            DIVIDER_REG => {
+                self.timer.write_div();
+                return Ok(());
+            }
+            TIMER_COUNT_REG => as_slice(&mut self.timer.tima),
+            TIMER_MOD_REG => as_slice(&mut self.timer.tma),
+            TIMER_CTRL_REG => as_slice(&mut self.timer.tac),
 
             IF_REG => as_slice(&mut self.interrupts),
 
