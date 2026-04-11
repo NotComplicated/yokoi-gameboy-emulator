@@ -1,6 +1,6 @@
 use crate::{
-    frame::{Frame, Theme},
-    mem::{self, LY_REG, Memory},
+    frame::{self, Frame, Theme},
+    mem::{self, Memory},
     system::Mode,
 };
 
@@ -134,11 +134,7 @@ struct Fifo {
 impl Fifo {
     fn new() -> Self {
         Self {
-            buffer: [Pixel::Tile {
-                color: 0,
-                palette: 0,
-                priority: 0,
-            }; 16],
+            buffer: Default::default(),
             len: 0,
             front: 0,
             back: 0,
@@ -170,18 +166,12 @@ impl Fifo {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-enum Pixel {
-    Tile {
-        color: u8,
-        palette: u8,
-        priority: u8,
-    },
-    Object {
-        color: u8,
-        palette: u8,
-        priority: bool,
-    },
+#[derive(Copy, Clone, Default, Debug)]
+struct Pixel {
+    color: u8,
+    palette: u8,
+    priority: u8,
+    from_obj: bool,
 }
 
 impl Ppu {
@@ -331,10 +321,9 @@ impl Ppu {
                 let scroll_x = memory.read(mem::SCROLL_X_REG)?;
                 let scroll_y = memory.read(mem::SCROLL_Y_REG)?;
                 let get_pixels = |lo, hi| {
-                    std::array::from_fn(|i| Pixel::Tile {
+                    std::array::from_fn(|i| Pixel {
                         color: ((lo >> (7 - i)) % 2) * 2 + ((hi >> (7 - i)) % 2),
-                        palette: 0,
-                        priority: 0,
+                        ..Default::default()
                     })
                 };
 
@@ -482,37 +471,48 @@ impl Ppu {
                         index,
                     } => {
                         let obj = oam.buffer[*index];
-                        let pixels = if self.obj_height == 8 {
-                            //TODO y-flip
+                        if self.mode == Mode::Cgb && obj.bank == 1 {
+                            todo!("read tile from cgb bank 1")
+                        }
+                        let pixels = {
+                            let data_addr_offset = if obj.y_flip {
+                                ((self.obj_height - 1) as i16)
+                                    - ((self.ly as i16) - (obj.y as i16) + 16)
+                            } else {
+                                (self.ly as i16) - (obj.y as i16) + 16
+                            };
                             let data_addr = DATA_0_START
-                                + 16 * obj.tile as u16
-                                + (self.ly - (obj.y.saturating_sub(16))) as u16;
+                                + 16 * ((obj.tile % if self.obj_height == 8 { 1 } else { 2 })
+                                    as u16)
+                                + 2 * (data_addr_offset as u16);
                             let mut pixels = get_pixels(
                                 memory.read_ppu(data_addr)?,
                                 memory.read_ppu(data_addr + 1)?,
-                            );
+                            )
+                            .map(|pixel| Pixel {
+                                color: pixel.color,
+                                palette: obj.palette,
+                                priority: obj.priority.into(),
+                                from_obj: true,
+                            });
                             if obj.x_flip {
                                 pixels.reverse();
                             }
-                            for pixel in &mut pixels {
-                                let Pixel::Tile { color, .. } = *pixel else {
-                                    unreachable!("get_pixel returns Tile")
-                                };
-                                *pixel = Pixel::Object {
-                                    color,
-                                    palette: obj.palette,
-                                    priority: obj.priority,
-                                };
-                            }
                             pixels
-                        } else {
-                            todo!("16px")
                         };
 
                         for (i, &pixel) in pixels.iter().enumerate() {
                             let fifo_pixel = &mut fifo.buffer[(fifo.front + i) % fifo.buffer.len()];
-                            //TODO reconcile priorities
-                            *fifo_pixel = pixel;
+                            // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
+                            *fifo_pixel =
+                                match (self.bg_w_priority, pixel.priority, fifo_pixel.priority) {
+                                    (true, 1, 1) | (true, 1, 0) | (true, 0, 1)
+                                        if fifo_pixel.color != 0 =>
+                                    {
+                                        *fifo_pixel
+                                    }
+                                    _ => pixel,
+                                };
                         }
 
                         if *in_window {
@@ -560,14 +560,47 @@ impl Ppu {
                 } else {
                     match (fifo.pop(), self.mode) {
                         (None, _) => None,
-                        (Some(Pixel::Object { color, palette, .. }), Mode::Dmg) => todo!(),
-                        (Some(Pixel::Object { color, palette, .. }), Mode::Cgb) => todo!(),
-                        (Some(Pixel::Tile { color, .. }), Mode::Dmg) => {
-                            let bgp = memory.read(mem::BG_PALETTE_REG)?;
-                            let color = bgp >> (color * 2) & 0b00000011;
-                            Some(crate::frame::Pixel::from_2bit(color, self.theme))
+                        (
+                            Some(Pixel {
+                                color,
+                                palette,
+                                from_obj: true,
+                                ..
+                            }),
+                            Mode::Dmg,
+                        ) => {
+                            if color == 0 {
+                                Some(frame::Pixel::from_2bit(0, self.theme))
+                            } else {
+                                let objp = if palette == 0 {
+                                    memory.read(mem::OBJ_PALETTE_0_REG)?
+                                } else {
+                                    memory.read(mem::OBJ_PALETTE_1_REG)?
+                                };
+                                let color = (objp >> (color * 2)) & 0b00000011;
+                                Some(frame::Pixel::from_2bit(color, self.theme))
+                            }
                         }
-                        (Some(Pixel::Tile { color, palette, .. }), Mode::Cgb) => todo!(),
+                        (
+                            Some(Pixel {
+                                color,
+                                palette,
+                                from_obj: true,
+                                ..
+                            }),
+                            Mode::Cgb,
+                        ) => todo!("read from cgb obj palette"),
+                        (Some(_), Mode::Dmg) if !self.bg_w_priority => {
+                            Some(frame::Pixel::from_2bit(0, self.theme))
+                        }
+                        (Some(Pixel { color, .. }), Mode::Dmg) => {
+                            let bgp = memory.read(mem::BG_PALETTE_REG)?;
+                            let color = (bgp >> (color * 2)) & 0b00000011;
+                            Some(frame::Pixel::from_2bit(color, self.theme))
+                        }
+                        (Some(Pixel { color, palette, .. }), Mode::Cgb) => {
+                            todo!("read from cgb bg palette")
+                        }
                     }
                 };
                 if let Some(pixel) = frame_pixel {
