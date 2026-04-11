@@ -22,6 +22,10 @@ enum Commands {
         #[arg(long)]
         debug: bool,
 
+        /// Use the classic green color scheme instead of grayscale
+        #[arg(long)]
+        classic_theme: bool,
+
         /// Short-circuit the emulator after N t-cycles
         #[arg(long)]
         short_circuit: Option<u64>,
@@ -81,6 +85,7 @@ fn run() -> Result<(), Error> {
         Commands::Run {
             boot,
             debug,
+            classic_theme,
             short_circuit,
             cart,
         } => {
@@ -90,7 +95,14 @@ fn run() -> Result<(), Error> {
             let mut system = yokoi::system::System::init_options(
                 boot_rom_data,
                 cart,
-                yokoi::system::Options { short_circuit },
+                yokoi::system::Options {
+                    short_circuit,
+                    dmg_theme: if classic_theme {
+                        yokoi::frame::Theme::Classic
+                    } else {
+                        yokoi::frame::Theme::Grayscale
+                    },
+                },
             )
             .map_err(Error::System)?;
             if debug {

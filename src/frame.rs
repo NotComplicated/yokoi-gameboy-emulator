@@ -6,7 +6,9 @@ pub struct Frame(pub Rc<[[Cell<Pixel>; 160]; 144]>);
 #[derive(Copy, Clone, Debug)]
 pub struct Pixel(pub u8, pub u8, pub u8);
 
+#[derive(Copy, Clone, Default, Debug)]
 pub enum Theme {
+    #[default]
     Grayscale,
     Classic,
 }

@@ -1,5 +1,5 @@
 use crate::{
-    frame::Frame,
+    frame::{Frame, Theme},
     mem::{self, LY_REG, Memory},
     system::Mode,
 };
@@ -21,6 +21,7 @@ const FETCH_STEPS: u8 = 6;
 
 pub struct Ppu {
     mode: Mode,
+    theme: Theme,
     state: State,
     ly: u8,
     dot: u16,
@@ -184,9 +185,10 @@ enum Pixel {
 }
 
 impl Ppu {
-    pub fn init(mode: Mode) -> Self {
+    pub fn init(mode: Mode, theme: Theme) -> Self {
         Self {
             mode,
+            theme,
             state: State::OamScan {
                 oam: Default::default(),
             },
@@ -552,7 +554,6 @@ impl Ppu {
                             ..
                         }
                 );
-                let theme = crate::frame::Theme::Grayscale; //TODO
                 let frame_pixel = if fetching_obj {
                     // postpone fifo popping until fetcher is done with object
                     None
@@ -564,7 +565,7 @@ impl Ppu {
                         (Some(Pixel::Tile { color, .. }), Mode::Dmg) => {
                             let bgp = memory.read(mem::BG_PALETTE_REG)?;
                             let color = bgp >> (color * 2) & 0b00000011;
-                            Some(crate::frame::Pixel::from_2bit(color, theme))
+                            Some(crate::frame::Pixel::from_2bit(color, self.theme))
                         }
                         (Some(Pixel::Tile { color, palette, .. }), Mode::Cgb) => todo!(),
                     }

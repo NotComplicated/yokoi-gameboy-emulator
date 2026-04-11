@@ -1,15 +1,14 @@
-use tracing::trace;
-
 use crate::{
     audio::Apu,
     cart::Cart,
-    frame::Frame,
+    frame::{Frame, Theme},
     mem::{self, Memory},
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
     util::Hex,
 };
+use tracing::trace;
 
 pub struct System {
     options: Options,
@@ -37,6 +36,7 @@ pub struct Joypad {
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Options {
+    pub dmg_theme: Theme,
     pub short_circuit: Option<u64>,
 }
 
@@ -99,7 +99,7 @@ impl System {
             memory,
             current_op,
             op_duration,
-            ppu: Ppu::init(mode),
+            ppu: Ppu::init(mode, options.dmg_theme),
             apu: Apu::init(),
             state: State::Running,
             ime: false,
