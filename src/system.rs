@@ -50,6 +50,7 @@ pub struct Joypad {
 pub struct Options {
     pub theme: Theme,
     pub short_circuit: Option<u64>,
+    pub debug: bool,
     pub skip_boot: bool,
 }
 
@@ -473,7 +474,7 @@ impl System {
             }
             Op::JrCondE8(..) => return Ok(HandleOp::FalseCond),
             Op::Stop(_) => self.state = State::Stopped,
-            Op::LdR8R8(R8::B, R8::B) => return Err(Error::ShortCircuit), // common debugging breakpoint command
+            Op::LdR8R8(R8::B, R8::B) if self.options.debug => return Err(Error::ShortCircuit), // common debugging breakpoint command
             Op::LdR8R8(r8_dest, r8_src) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
             Op::Halt => self.state = State::Halted,
             Op::AddR8(r8) => {

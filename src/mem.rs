@@ -447,7 +447,7 @@ impl Memory {
             },
 
             ROM_BANK_N_START..VRAM_START => match &self.mbc {
-                Mbc::None { .. } => Ok(&self.cart.data()[(addr - ROM_BANK_N_START).into()..]),
+                Mbc::None { .. } => Ok(&self.cart.data()[addr.into()..]),
                 Mbc::One {
                     rom_bank_reg,
                     rom_bank_reg_mask,
@@ -683,6 +683,7 @@ impl Memory {
 
             IE_REG => Ok(as_slice(&self.ie)),
 
+            //TODO _ => return Ok(&[0xFF]),
             _ => Err(Error::OutOfBounds),
         }
     }
@@ -755,7 +756,7 @@ impl Memory {
                     Mbc::Three { latching, .. } => {
                         if data[0] == 0x00 {
                             *latching = true;
-                        } else if data[0] == 0x01 && *latching == true {
+                        } else if data[0] == 0x01 {
                             *latching = false;
                         }
                     }
@@ -1027,6 +1028,7 @@ impl Memory {
 
             IE_REG => as_slice(&mut self.ie),
 
+            //TODO _ => return Ok(()),
             _ => return Err(Error::OutOfBounds),
         };
 

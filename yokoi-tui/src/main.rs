@@ -7,6 +7,11 @@ use std::{
 };
 use tracing::debug;
 use tracing_subscriber::EnvFilter;
+use yokoi::{
+    cart::{Cart, ColorSupport, Feature},
+    frame::Theme,
+    system::{Input, Mode, Options, System},
+};
 
 #[derive(Parser)]
 struct Cli {
@@ -96,19 +101,20 @@ fn run() -> Result<(), Error> {
         } => {
             let boot_rom_data = std::fs::read(&boot)?;
             let cart_data = std::fs::read(&cart)?;
-            let cart = yokoi::cart::Cart::new(cart_data).map_err(Error::Cart)?;
-            let mut system = yokoi::system::System::init_options(
+            let cart = Cart::new(cart_data).map_err(Error::Cart)?;
+            let mut system = System::init_options(
                 boot_rom_data,
                 cart,
-                yokoi::system::Mode::Dmg,
-                yokoi::system::Options {
-                    skip_boot,
-                    short_circuit,
+                Mode::Dmg,
+                Options {
                     theme: if classic_theme {
-                        yokoi::frame::Theme::Classic
+                        Theme::Classic
                     } else {
-                        yokoi::frame::Theme::Grayscale
+                        Theme::Grayscale
                     },
+                    short_circuit,
+                    debug,
+                    skip_boot,
                 },
             )
             .map_err(Error::System)?;
@@ -136,7 +142,7 @@ fn run() -> Result<(), Error> {
                     .init();
                 for i in 0.. {
                     debug!(frame = i);
-                    let input = yokoi::system::Input::<Vec<u8>>::default();
+                    let input = Input::<Vec<u8>>::default();
                     system.next_frame(input).map_err(Error::System)?;
                 }
             } else {
@@ -149,7 +155,7 @@ fn run() -> Result<(), Error> {
 
         Commands::CartInfo { cart } => {
             let data = std::fs::read(&cart)?;
-            let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
+            let cart = Cart::new(data).map_err(Error::Cart)?;
 
             writeln!(out, "Title: {}", cart.title())?;
 
@@ -167,8 +173,8 @@ fn run() -> Result<(), Error> {
                 out,
                 "Color Support: {}",
                 match cart.color_supported() {
-                    yokoi::cart::ColorSupport::BackwardsCompatible => "Backwards Compatible",
-                    yokoi::cart::ColorSupport::Exclusive => "Exclusive",
+                    ColorSupport::BackwardsCompatible => "Backwards Compatible",
+                    ColorSupport::Exclusive => "Exclusive",
                     _ => "No",
                 }
             )?;
@@ -188,22 +194,22 @@ fn run() -> Result<(), Error> {
                     out,
                     "{}",
                     match feature {
-                        yokoi::cart::Feature::Mbc1 => "MBC1",
-                        yokoi::cart::Feature::Mbc2 => "MBC2",
-                        yokoi::cart::Feature::Mbc3 => "MBC3",
-                        yokoi::cart::Feature::Mbc5 => "MBC5",
-                        yokoi::cart::Feature::Mbc6 => "MBC6",
-                        yokoi::cart::Feature::Mbc7 => "MBC7",
-                        yokoi::cart::Feature::Mmm01 => "MMM01",
-                        yokoi::cart::Feature::Ram => "RAM",
-                        yokoi::cart::Feature::Battery => "Battery",
-                        yokoi::cart::Feature::Timer => "Timer",
-                        yokoi::cart::Feature::Rumble => "Rumble",
-                        yokoi::cart::Feature::Sensor => "Sensor",
-                        yokoi::cart::Feature::Camera => "Camera",
-                        yokoi::cart::Feature::Tamagotchi => "Tamagotchi",
-                        yokoi::cart::Feature::HuC1 => "HuC1",
-                        yokoi::cart::Feature::HuC3 => "HuC3",
+                        Feature::Mbc1 => "MBC1",
+                        Feature::Mbc2 => "MBC2",
+                        Feature::Mbc3 => "MBC3",
+                        Feature::Mbc5 => "MBC5",
+                        Feature::Mbc6 => "MBC6",
+                        Feature::Mbc7 => "MBC7",
+                        Feature::Mmm01 => "MMM01",
+                        Feature::Ram => "RAM",
+                        Feature::Battery => "Battery",
+                        Feature::Timer => "Timer",
+                        Feature::Rumble => "Rumble",
+                        Feature::Sensor => "Sensor",
+                        Feature::Camera => "Camera",
+                        Feature::Tamagotchi => "Tamagotchi",
+                        Feature::HuC1 => "HuC1",
+                        Feature::HuC3 => "HuC3",
                     }
                 )?;
             }
@@ -231,7 +237,7 @@ fn run() -> Result<(), Error> {
 
         Commands::CartDump { bytes, cart } => {
             let data = std::fs::read(&cart)?;
-            let cart = yokoi::cart::Cart::new(data).map_err(Error::Cart)?;
+            let cart = Cart::new(data).map_err(Error::Cart)?;
             let width = crossterm::terminal::size()?.0 as usize;
             let chunk_size = ((width - "000000:".len()) / 3).next_power_of_two() / 2;
             let data = if let Some(n) = bytes

@@ -1,26 +1,46 @@
 use crate::Error;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     DefaultTerminal,
     prelude::*,
     widgets::{Block, Widget},
 };
+use std::time::{Duration, Instant};
+use yokoi::{
+    frame::{Frame, Pixel},
+    system::{Input, System},
+};
 
-pub fn run(mut term: DefaultTerminal, mut system: yokoi::system::System) -> Result<(), Error> {
+pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
     let mut screen = GameScreen::default();
+    let delta_time = Duration::from_millis(1000 / 60);
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(1000 / 60));
-        let input = yokoi::system::Input::<Vec<u8>>::default();
-        screen.frame = system.next_frame(input).map_err(Error::System)?;
-        term.draw(|f| {
-            f.render_widget(&screen, f.area());
-        })
-        .map_err(Error::Io)?;
+        let input = Input::<Vec<u8>>::default();
+        let next_frame_at = Instant::now() + delta_time;
+        loop {
+            if crossterm::event::poll(next_frame_at - Instant::now())? {
+                match crossterm::event::read()?.as_key_press_event() {
+                    Some(KeyEvent {
+                        code: KeyCode::Char('q'),
+                        ..
+                    }) => return Ok(()),
+                    _ => {}
+                }
+            }
+            if Instant::now() >= next_frame_at {
+                screen.frame = system.next_frame(input).map_err(Error::System)?;
+                term.draw(|f| {
+                    f.render_widget(&screen, f.area());
+                })?;
+                break;
+            }
+        }
     }
 }
 
 #[derive(Default)]
 pub struct GameScreen {
-    pub frame: yokoi::frame::Frame,
+    pub frame: Frame,
     pub block: Block<'static>,
 }
 
@@ -35,7 +55,7 @@ impl Widget for &GameScreen {
         for (y, row) in rows {
             let pixels = (0..).take_while(|&x| x < area.width).zip(row);
             for (x, pixel) in pixels {
-                let yokoi::frame::Pixel(r, g, b) = pixel.get();
+                let Pixel(r, g, b) = pixel.get();
                 buf.cell_mut((area.x + x, area.y + y)).unwrap().bg = Color::Rgb(r, g, b);
             }
         }
