@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use std::{
     io::{self, Write},
     path::PathBuf,
+    process::{Command, Stdio},
 };
 use tracing::debug;
 use tracing_subscriber::EnvFilter;
@@ -23,6 +24,10 @@ struct Cli {
 enum Commands {
     /// Run a cartridge in the emulator
     Run {
+        /// Launch the emulator in a new ghostty window
+        #[arg(long)]
+        new_window: bool,
+
         /// Don't show terminal UI. For use within a debugger
         #[arg(long)]
         debug: bool,
@@ -92,6 +97,7 @@ fn run() -> Result<(), Error> {
 
     match cli.command {
         Commands::Run {
+            new_window,
             boot,
             debug,
             skip_boot,
@@ -99,6 +105,25 @@ fn run() -> Result<(), Error> {
             short_circuit,
             cart,
         } => {
+            if new_window {
+                Command::new("ghostty")
+                    .args([
+                        "--font-size=5",
+                        "--window-width=160",
+                        "--window-height=144",
+                        &format!(
+                            "--command={}",
+                            std::env::args()
+                                .filter(|arg| arg != "--new-window")
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        ),
+                    ])
+                    .stderr(Stdio::null())
+                    .spawn()?
+                    .wait()?;
+                return Ok(());
+            }
             let boot_rom_data = std::fs::read(&boot)?;
             let cart_data = std::fs::read(&cart)?;
             let cart = Cart::new(cart_data).map_err(Error::Cart)?;
@@ -119,6 +144,7 @@ fn run() -> Result<(), Error> {
             )
             .map_err(Error::System)?;
             if debug {
+                drop(out);
                 tracing_subscriber::fmt()
                     .with_env_filter(EnvFilter::from_default_env())
                     .without_time()

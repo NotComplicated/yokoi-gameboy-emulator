@@ -32,8 +32,13 @@ impl RegisterSet {
         u16::from_be_bytes([self.h, self.l])
     }
 
+    pub fn set_f(&mut self, f: u8) {
+        self.f = f & 0b11110000;
+    }
+
     pub fn set_af(&mut self, af: u16) {
         [self.a, self.f] = af.to_be_bytes();
+        self.f &= 0b11110000;
     }
 
     pub fn set_bc(&mut self, bc: u16) {

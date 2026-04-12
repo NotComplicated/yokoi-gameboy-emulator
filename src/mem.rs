@@ -221,7 +221,7 @@ impl Mbc {
                 }
                 crate::cart::Feature::Mbc5 => {
                     return Self::Five {
-                        rom_bank_reg: 0,
+                        rom_bank_reg: 1,
                         sram_enabled: false,
                         sram_bank_reg: 0,
                         sram: Default::default(),
@@ -235,6 +235,16 @@ impl Mbc {
         }
         Self::None {
             sram: Default::default(),
+        }
+    }
+
+    fn get_bank(&self) -> u16 {
+        match self {
+            Self::None { .. } => 0,
+            Self::One { rom_bank_reg, .. } => *rom_bank_reg as _,
+            Self::Two { rom_bank_reg, .. } => *rom_bank_reg as _,
+            Self::Three { rom_bank_reg, .. } => *rom_bank_reg as _,
+            Self::Five { rom_bank_reg, .. } => *rom_bank_reg,
         }
     }
 }
@@ -484,6 +494,7 @@ impl Memory {
                     // no bank == 0 check here
                     let addr =
                         ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
+                    // TODO apply rom_bank_reg_mask like mbc1?
                     Ok(&self.cart.data()[addr..])
                 }
             },
@@ -764,10 +775,10 @@ impl Memory {
                         *sram_enabled = data[0] & 0b00001111 == 0x0A;
                     }
                     Mbc::Five { rom_bank_reg, .. } if addr < 0x3000 => {
-                        *rom_bank_reg = (*rom_bank_reg & 0xF0) + data[0] as u16;
+                        *rom_bank_reg = (*rom_bank_reg & 0xFF00) + data[0] as u16;
                     }
                     Mbc::Five { rom_bank_reg, .. } if addr < 0x4000 => {
-                        *rom_bank_reg = ((data[0] as u16 & 0x01) << 8) + (*rom_bank_reg & 0x0F);
+                        *rom_bank_reg = ((data[0] as u16 & 0x0001) << 8) + (*rom_bank_reg & 0x00FF);
                     }
                     Mbc::Five { sram_bank_reg, .. } if addr < 0x6000 => {
                         *sram_bank_reg = data[0] & 0x0F;

@@ -26,8 +26,9 @@ impl Timer {
     pub fn tick(&mut self) -> Result {
         let mut result = Result::default();
         let sys_prev = u16::from_be_bytes(self.sys);
-        self.sys = sys_prev.wrapping_add(1).to_be_bytes();
-        if sys_prev >> 12 % 2 == 1 && (sys_prev >> 12 + 1) % 2 == 0 {
+        let sys = sys_prev.wrapping_add(1);
+        self.sys = sys.to_be_bytes();
+        if (sys_prev >> 12) % 2 == 1 && (sys >> 12) % 2 == 0 {
             result.div_apu = true;
         }
         match &mut self.state {

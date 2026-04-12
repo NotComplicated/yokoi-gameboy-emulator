@@ -28,10 +28,10 @@ pub struct System {
     cart_hash: String,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Input<W: Write> {
-    joypad: Joypad,
-    save_state: Option<W>,
+    pub joypad: Joypad,
+    pub save_state: Option<W>,
 }
 
 #[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
@@ -97,6 +97,8 @@ enum HandleOp {
     FalseCond,
 }
 
+const POSTBOOT_STATE: &[u8] = include_bytes!("../postboot.yokoistate");
+
 thread_local! {
     static STOPPED_FRAME: Frame = Frame::default();
 }
@@ -117,8 +119,7 @@ impl System {
             let mut system = Self {
                 options,
                 cart_hash,
-                ..rmp_serde::from_slice(include_bytes!("../postboot.yokoistate"))
-                    .map_err(Error::Load)?
+                ..rmp_serde::from_slice(POSTBOOT_STATE).map_err(Error::Load)?
             };
             system.memory.set_cart(cart);
             system.memory.reset_mbc();
@@ -397,23 +398,23 @@ impl System {
             Op::LdR8N8(r8, N8(n8)) => self.write_r8(r8, n8)?,
             Op::Rlca => {
                 self.reg_set.a = self.reg_set.a.rotate_left(1);
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_carry(self.reg_set.a % 2 == 1);
             }
             Op::Rrca => {
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_carry(self.reg_set.a % 2 == 1);
                 self.reg_set.a = self.reg_set.a.rotate_right(1);
             }
             Op::Rla => {
                 let carry = self.reg_set.carry() as u8;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_carry(self.reg_set.a & 0b10000000 != 0);
                 self.reg_set.a = (self.reg_set.a << 1) + carry;
             }
             Op::Rra => {
                 let carry = self.reg_set.carry() as u8;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_carry(self.reg_set.a % 2 == 1);
                 self.reg_set.a = (carry << 7) + (self.reg_set.a >> 1);
             }
@@ -529,12 +530,12 @@ impl System {
             }
             Op::XorR8(r8) => {
                 self.reg_set.a ^= self.read_r8(r8)?;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_zero(self.reg_set.a == 0x00);
             }
             Op::OrR8(r8) => {
                 self.reg_set.a |= self.read_r8(r8)?;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_zero(self.reg_set.a == 0x00);
             }
             Op::CpR8(r8) => {
@@ -594,12 +595,12 @@ impl System {
             }
             Op::XorN8(N8(n8)) => {
                 self.reg_set.a ^= n8;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_zero(self.reg_set.a == 0x00);
             }
             Op::OrN8(N8(n8)) => {
                 self.reg_set.a |= n8;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 self.reg_set.set_zero(self.reg_set.a == 0x00);
             }
             Op::CpN8(N8(n8)) => {
@@ -664,7 +665,7 @@ impl System {
             }
             Op::Prefix(prefixed, r8) => 'prefixed: {
                 let value = self.read_r8(r8)?;
-                self.reg_set.f = 0x00;
+                self.reg_set.set_f(0x00);
                 let (result, carry) = match prefixed {
                     Prefixed::Rlc => (value.rotate_left(1), value & 0b10000000 != 0),
                     Prefixed::Rrc => (value.rotate_right(1), value % 2 == 1),
