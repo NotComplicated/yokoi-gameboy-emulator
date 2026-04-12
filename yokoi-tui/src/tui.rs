@@ -14,7 +14,7 @@ use yokoi::{
 pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
     let mut screen = GameScreen::default();
     let delta_time = Duration::from_millis(1000 / 60);
-    let mut input = Input::<Vec<u8>>::default();
+    let mut input = Input::default();
     loop {
         let next_frame_at = Instant::now() + delta_time;
         loop {
@@ -35,7 +35,11 @@ pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
                 }
             }
             if Instant::now() >= next_frame_at {
-                screen.frame = system.next_frame(input.clone()).map_err(Error::System)?;
+                let input = Input {
+                    joypad: input.joypad,
+                    ..Default::default()
+                };
+                screen.frame = system.next_frame(input).map_err(Error::System)?;
                 term.draw(|f| {
                     f.render_widget(&screen, f.area());
                 })?;

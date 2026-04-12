@@ -1,4 +1,8 @@
-use std::io::{Read, Write};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    io::{Read, Write},
+};
 
 use crate::{
     audio::Apu,
@@ -8,7 +12,7 @@ use crate::{
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
-    util::Hex,
+    util::{self, Hex},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
@@ -26,12 +30,14 @@ pub struct System {
     state: State,
     ime: bool,
     cart_hash: String,
+    #[serde(skip)]
+    symbol_map: Option<HashMap<(u16, u16), String>>,
 }
 
-#[derive(Clone, Default)]
-pub struct Input<W: Write> {
+#[derive(Default)]
+pub struct Input {
     pub joypad: Joypad,
-    pub save_state: Option<W>,
+    pub save_state: Option<Box<dyn Write>>,
 }
 
 #[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
@@ -46,13 +52,17 @@ pub struct Joypad {
     pub b: bool,
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Default, Debug)]
 pub struct Options {
     pub theme: Theme,
     pub short_circuit: Option<u64>,
     pub debug: bool,
     pub skip_boot: bool,
+    pub symbols: Option<Box<dyn SymbolRead>>,
 }
+
+pub trait SymbolRead: Read + Debug {}
+impl<T: Read + Debug> SymbolRead for T {}
 
 #[derive(Debug)]
 pub enum Error {
@@ -62,6 +72,7 @@ pub enum Error {
     WrongCart,
     Save(rmp_serde::encode::Error),
     ShortCircuit,
+    Symbol(util::SymbolError),
 }
 
 impl From<mem::Error> for Error {
@@ -112,22 +123,34 @@ impl System {
         boot_rom: Vec<u8>,
         cart: Cart,
         mode: Mode,
-        options: Options,
+        mut options: Options,
     ) -> Result<Self, Error> {
         let cart_hash = cart.hash();
+        let theme = options.theme;
+        let symbol_map = options
+            .symbols
+            .take()
+            .map(util::read_symbols)
+            .transpose()
+            .map_err(Error::Symbol)?;
+
         if options.skip_boot {
+            info!(?options, "system initialized");
             let mut system = Self {
                 options,
                 cart_hash,
+                symbol_map,
                 ..rmp_serde::from_slice(POSTBOOT_STATE).map_err(Error::Load)?
             };
             system.memory.set_cart(cart);
             system.memory.reset_mbc();
+            system.ppu.set_theme(theme);
             Ok(system)
         } else {
             let memory = Memory::init(boot_rom, cart, mode);
             let (current_op, next_pc) = memory.read_op(0)?;
             let op_duration = current_op.properties().duration;
+            info!(?options, "system initialized");
             Ok(Self {
                 options,
                 reg_set: RegisterSet {
@@ -137,11 +160,12 @@ impl System {
                 memory,
                 current_op,
                 op_duration,
-                ppu: Ppu::init(mode, options.theme),
+                ppu: Ppu::init(mode, theme),
                 apu: Apu::init(),
                 state: State::Running,
                 ime: false,
                 cart_hash,
+                symbol_map,
             })
         }
     }
@@ -155,13 +179,14 @@ impl System {
         if system.cart_hash != cart.hash() {
             return Err(Error::WrongCart);
         }
-        system.options = options;
         system.memory.set_cart(cart);
         system.ppu.set_theme(options.theme);
+        info!(?options, "system loaded from save state");
+        system.options = options;
         Ok(system)
     }
 
-    pub fn next_frame<W: Write>(&mut self, input: Input<W>) -> Result<Frame, Error> {
+    pub fn next_frame(&mut self, input: Input) -> Result<Frame, Error> {
         self.memory.set_joypad(input.joypad);
         if let Some(mut writer) = input.save_state
             && self.memory.read(mem::BOOT_ROM_CTRL_REG)? != 0
@@ -327,7 +352,14 @@ impl System {
     }
 
     fn handle_op(&mut self) -> Result<HandleOp, Error> {
+        if let Some(map) = &self.symbol_map {
+            let bank = self.memory.bank(self.reg_set.pc)?;
+            if let Some(symbol) = map.get(&(bank, self.reg_set.pc)) {
+                trace!(symbol);
+            }
+        }
         trace!(op = ?Hex(self.current_op), registers = ?self.reg_set);
+
         match self.current_op {
             Op::Nop => {}
             Op::LdR16N16(r16, N16(n16)) => self.write_r16(r16, n16),

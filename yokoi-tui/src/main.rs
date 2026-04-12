@@ -2,6 +2,7 @@ mod tui;
 
 use clap::{Parser, Subcommand};
 use std::{
+    fs::File,
     io::{self, Write},
     path::PathBuf,
     process::{Command, Stdio},
@@ -28,21 +29,29 @@ enum Commands {
         #[arg(long)]
         new_window: bool,
 
-        /// Don't show terminal UI. For use within a debugger
+        /// Use the classic green color scheme instead of grayscale
         #[arg(long)]
-        debug: bool,
+        classic_theme: bool,
 
         /// Skip the boot-up sequence
         #[arg(long)]
         skip_boot: bool,
 
-        /// Use the classic green color scheme instead of grayscale
+        /// Don't show terminal UI. For use within a debugger
         #[arg(long)]
-        classic_theme: bool,
+        debug: bool,
+
+        /// Log level when debugging. Overriden by RUST_LOG
+        #[arg(long, default_value_t = tracing::Level::INFO)]
+        log_level: tracing::Level,
 
         /// Short-circuit the emulator after N t-cycles
         #[arg(long)]
         short_circuit: Option<u64>,
+
+        /// Path to debug symbols used for debugging
+        #[arg(long)]
+        symbols: Option<PathBuf>,
 
         /// Path to boot ROM file
         #[arg(short, long)]
@@ -98,11 +107,13 @@ fn run() -> Result<(), Error> {
     match cli.command {
         Commands::Run {
             new_window,
-            boot,
-            debug,
-            skip_boot,
             classic_theme,
+            skip_boot,
+            debug,
+            log_level,
             short_circuit,
+            symbols,
+            boot,
             cart,
         } => {
             if new_window {
@@ -124,29 +135,14 @@ fn run() -> Result<(), Error> {
                     .wait()?;
                 return Ok(());
             }
-            let boot_rom_data = std::fs::read(&boot)?;
-            let cart_data = std::fs::read(&cart)?;
-            let cart = Cart::new(cart_data).map_err(Error::Cart)?;
-            let mut system = System::init_options(
-                boot_rom_data,
-                cart,
-                Mode::Dmg,
-                Options {
-                    theme: if classic_theme {
-                        Theme::Classic
-                    } else {
-                        Theme::Grayscale
-                    },
-                    short_circuit,
-                    debug,
-                    skip_boot,
-                },
-            )
-            .map_err(Error::System)?;
             if debug {
                 drop(out);
                 tracing_subscriber::fmt()
-                    .with_env_filter(EnvFilter::from_default_env())
+                    .with_env_filter(
+                        EnvFilter::builder()
+                            .with_default_directive(log_level.into())
+                            .from_env_lossy(),
+                    )
                     .without_time()
                     .with_level(false)
                     .with_target(false)
@@ -166,9 +162,35 @@ fn run() -> Result<(), Error> {
                         Writer(io::stdout().lock())
                     })
                     .init();
+            }
+            let boot_rom_data = std::fs::read(&boot)?;
+            let cart_data = std::fs::read(&cart)?;
+            let cart = Cart::new(cart_data).map_err(Error::Cart)?;
+            let mut system = System::init_options(
+                boot_rom_data,
+                cart,
+                Mode::Dmg,
+                Options {
+                    theme: if classic_theme {
+                        Theme::Classic
+                    } else {
+                        Theme::Grayscale
+                    },
+                    short_circuit,
+                    debug,
+                    skip_boot,
+                    symbols: symbols
+                        .map(File::open)
+                        .transpose()
+                        .map_err(Error::Io)?
+                        .map(|f| Box::new(f) as _),
+                },
+            )
+            .map_err(Error::System)?;
+            if debug {
                 for i in 0.. {
                     debug!(frame = i);
-                    let input = Input::<Vec<u8>>::default();
+                    let input = Input::default();
                     system.next_frame(input).map_err(Error::System)?;
                 }
             } else {

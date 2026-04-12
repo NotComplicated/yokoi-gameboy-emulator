@@ -125,6 +125,13 @@ pub struct Memory {
     ie: u8,
 }
 
+#[derive(Debug)]
+pub enum Error {
+    Op(opcode::Error),
+    OutOfBounds(u16),
+    SegFault,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 enum Mbc {
     None {
@@ -238,14 +245,76 @@ impl Mbc {
         }
     }
 
-    fn get_bank(&self) -> u16 {
-        match self {
-            Self::None { .. } => 0,
-            Self::One { rom_bank_reg, .. } => *rom_bank_reg as _,
-            Self::Two { rom_bank_reg, .. } => *rom_bank_reg as _,
-            Self::Three { rom_bank_reg, .. } => *rom_bank_reg as _,
-            Self::Five { rom_bank_reg, .. } => *rom_bank_reg,
-        }
+    fn bank_and_cart_addr(&self, addr: u16) -> Result<(u16, usize), Error> {
+        Ok(match addr {
+            ROM_BANK_0_START..ROM_BANK_N_START => {
+                if let Self::One {
+                    rom_bank_reg,
+                    rom_bank_reg_mask,
+                    extended_bank:
+                        Mbc1ExtBank::Rom {
+                            advanced: true,
+                            rom_bank_upper_reg,
+                            ..
+                        },
+                    ..
+                } = self
+                {
+                    // MBC1 advanced mode on 1MB+ cart, bank # comes from upper/lower regs
+                    let bank_lower = rom_bank_reg & rom_bank_reg_mask;
+                    let bank = (rom_bank_upper_reg << 5) + bank_lower;
+                    let addr = ((bank as usize) << 14) + addr as usize;
+                    (bank.into(), addr)
+                } else {
+                    // otherwise, simply read the first ROM bank
+                    (0, addr.into())
+                }
+            }
+
+            ROM_BANK_N_START..VRAM_START => match self {
+                Self::None { .. } => (0, addr.into()),
+                Self::One {
+                    rom_bank_reg,
+                    rom_bank_reg_mask,
+                    extended_bank: Mbc1ExtBank::Ram { .. },
+                    ..
+                } => {
+                    let bank =
+                        if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
+                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
+                    (bank.into(), addr)
+                }
+                Self::One {
+                    rom_bank_reg,
+                    rom_bank_reg_mask,
+                    extended_bank:
+                        Mbc1ExtBank::Rom {
+                            rom_bank_upper_reg, ..
+                        },
+                    ..
+                } => {
+                    // bank == 0 check must come *before* mask check
+                    let bank_lower =
+                        if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
+                    let bank = (rom_bank_upper_reg << 5) + bank_lower;
+                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
+                    (bank.into(), addr)
+                }
+                Self::Two { rom_bank_reg, .. } | Self::Three { rom_bank_reg, .. } => {
+                    let bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
+                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
+                    (bank.into(), addr)
+                }
+                Self::Five { rom_bank_reg, .. } => {
+                    // no bank == 0 check here
+                    let addr =
+                        ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
+                    (*rom_bank_reg, addr)
+                }
+            },
+
+            _ => return Err(Error::OutOfBounds(addr)),
+        })
     }
 }
 
@@ -304,13 +373,6 @@ struct Lcd {
     cgb_obj_palette_spec: u8,
 }
 
-#[derive(Debug)]
-pub enum Error {
-    Op(opcode::Error),
-    OutOfBounds,
-    SegFault,
-}
-
 impl Memory {
     pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
         let is_cgb = mode == Mode::Cgb;
@@ -348,6 +410,10 @@ impl Memory {
             hram: [0; _],
             ie: 0,
         }
+    }
+
+    pub fn bank(&self, addr: u16) -> Result<u16, Error> {
+        self.mbc.bank_and_cart_addr(addr).map(|(bank, _)| bank)
     }
 
     pub fn set_cart(&mut self, cart: Cart) {
@@ -432,72 +498,10 @@ impl Memory {
                 Ok(&self.boot_rom[addr.into()..])
             }
 
-            ROM_BANK_0_START..ROM_BANK_N_START => match self.mbc {
-                Mbc::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank:
-                        Mbc1ExtBank::Rom {
-                            advanced: true,
-                            rom_bank_upper_reg,
-                            ..
-                        },
-                    ..
-                } => {
-                    // MBC1 advanced mode on 1MB+ cart, bank # comes from upper/lower regs
-                    let rom_bank_lower = rom_bank_reg & rom_bank_reg_mask;
-                    let rom_bank = (rom_bank_upper_reg << 5) + rom_bank_lower;
-                    let addr = ((rom_bank as usize) << 14) + addr as usize;
-                    Ok(&self.cart.data()[addr..])
-                }
-                _ => {
-                    // otherwise, simply read the first ROM bank
-                    Ok(&self.cart.data()[addr.into()..])
-                }
-            },
-
-            ROM_BANK_N_START..VRAM_START => match &self.mbc {
-                Mbc::None { .. } => Ok(&self.cart.data()[addr.into()..]),
-                Mbc::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank: Mbc1ExtBank::Ram { .. },
-                    ..
-                } => {
-                    let rom_bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-                    let rom_bank = rom_bank & rom_bank_reg_mask;
-                    let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Ok(&self.cart.data()[addr..])
-                }
-                Mbc::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank:
-                        Mbc1ExtBank::Rom {
-                            rom_bank_upper_reg, ..
-                        },
-                    ..
-                } => {
-                    // bank == 0 check must come *before* mask check
-                    let rom_bank_lower = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-                    let rom_bank_lower = rom_bank_lower & rom_bank_reg_mask;
-                    let rom_bank = (rom_bank_upper_reg << 5) + rom_bank_lower;
-                    let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Ok(&self.cart.data()[addr..])
-                }
-                Mbc::Two { rom_bank_reg, .. } | Mbc::Three { rom_bank_reg, .. } => {
-                    let rom_bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-                    let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Ok(&self.cart.data()[addr..])
-                }
-                Mbc::Five { rom_bank_reg, .. } => {
-                    // no bank == 0 check here
-                    let addr =
-                        ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    // TODO apply rom_bank_reg_mask like mbc1?
-                    Ok(&self.cart.data()[addr..])
-                }
-            },
+            ROM_BANK_0_START..VRAM_START => {
+                let (_, addr) = self.mbc.bank_and_cart_addr(addr)?;
+                Ok(&self.cart.data()[addr..])
+            }
 
             VRAM_START..SRAM_START => {
                 if !ppu && self.lock == Lock::VramOam {
@@ -695,7 +699,7 @@ impl Memory {
             IE_REG => Ok(as_slice(&self.ie)),
 
             //TODO _ => return Ok(&[0xFF]),
-            _ => Err(Error::OutOfBounds),
+            _ => Err(Error::OutOfBounds(addr)),
         }
     }
 
@@ -1040,7 +1044,7 @@ impl Memory {
             IE_REG => as_slice(&mut self.ie),
 
             //TODO _ => return Ok(()),
-            _ => return Err(Error::OutOfBounds),
+            _ => return Err(Error::OutOfBounds(addr)),
         };
 
         if slice.len() < data.len() {
