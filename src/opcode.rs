@@ -1,10 +1,12 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug)]
 pub enum Error {
     Exhausted,
     Invalid,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum R8 {
     B = 0b000,
@@ -37,7 +39,7 @@ impl R8 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum R16 {
     Bc = 0b00,
@@ -58,7 +60,7 @@ impl R16 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum R16Stk {
     Bc = 0b00,
@@ -79,7 +81,7 @@ impl R16Stk {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum R16Mem {
     Bc = 0b00,
@@ -100,7 +102,7 @@ impl R16Mem {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum Cond {
     Nz = 0b00,
@@ -121,7 +123,7 @@ impl Cond {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct N8(pub u8);
 
@@ -135,7 +137,7 @@ impl N8 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct N16(pub u16);
 
@@ -149,7 +151,7 @@ impl N16 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct A8(pub u8);
 
@@ -163,7 +165,7 @@ impl A8 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct A16(pub u16);
 
@@ -177,7 +179,7 @@ impl A16 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct E8(pub i8);
 
@@ -191,7 +193,7 @@ impl E8 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct B3(pub u8);
 
@@ -201,7 +203,7 @@ impl B3 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct Tgt3(pub u8);
 
@@ -211,7 +213,7 @@ impl Tgt3 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum Op {
     Nop,
     LdR16N16(R16, N16),
@@ -278,7 +280,7 @@ pub enum Op {
     Ei,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum Prefixed {
     Rlc,
     Rrc,
@@ -293,7 +295,7 @@ pub enum Prefixed {
     Set(B3),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum Duration {
     Const(u8),
     Cond(u8, u8),

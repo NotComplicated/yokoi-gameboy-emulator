@@ -9,9 +9,8 @@ pub fn run(mut term: DefaultTerminal, mut system: yokoi::system::System) -> Resu
     let mut screen = GameScreen::default();
     loop {
         std::thread::sleep(std::time::Duration::from_millis(1000 / 60));
-        screen.frame = system
-            .next_frame(Default::default())
-            .map_err(Error::System)?;
+        let input = yokoi::system::Input::<Vec<u8>>::default();
+        screen.frame = system.next_frame(input).map_err(Error::System)?;
         term.draw(|f| {
             f.render_widget(&screen, f.area());
         })

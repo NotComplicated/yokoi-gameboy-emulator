@@ -3,6 +3,7 @@ use crate::{
     mem::{self, Memory},
     system::Mode,
 };
+use serde::{Deserialize, Serialize};
 
 const X_END: u8 = 160;
 const LY_END: u8 = 154;
@@ -19,8 +20,10 @@ const DATA_2_START: u16 = 0x9000;
 
 const FETCH_STEPS: u8 = 6;
 
+#[derive(Serialize, Deserialize)]
 pub struct Ppu {
     mode: Mode,
+    #[serde(skip)]
     theme: Theme,
     state: State,
     ly: u8,
@@ -41,7 +44,7 @@ pub struct Ppu {
     frame: Frame,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 enum State {
     Hblank,
     Vblank,
@@ -74,13 +77,13 @@ impl From<mem::Error> for Error {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
 struct OamBuf {
     buffer: [Object; 10],
     len: usize,
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
 struct Object {
     y: u8,
     x: u8,
@@ -92,7 +95,7 @@ struct Object {
     bank: u8,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Fetcher {
     Bg {
         x: u8,
@@ -123,7 +126,7 @@ impl Fetcher {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Fifo {
     buffer: [Pixel; 16],
     len: usize,
@@ -166,7 +169,7 @@ impl Fifo {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
 struct Pixel {
     color: u8,
     palette: u8,
@@ -199,6 +202,10 @@ impl Ppu {
             prev_stat: 0,
             frame: Default::default(),
         }
+    }
+
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
     pub fn tick(&mut self, memory: &mut Memory) -> Result<Option<Frame>, Error> {

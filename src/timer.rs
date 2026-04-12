@@ -1,4 +1,6 @@
-#[derive(Default, Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Serialize, Deserialize, Debug)]
 pub struct Timer {
     state: State,
     sys: [u8; 2],
@@ -7,7 +9,7 @@ pub struct Timer {
     pub tac: u8,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 enum State {
     #[default]
     Ticking,

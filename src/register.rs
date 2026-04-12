@@ -1,4 +1,6 @@
-#[derive(Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Default)]
 pub struct RegisterSet {
     pub a: u8,
     pub f: u8,

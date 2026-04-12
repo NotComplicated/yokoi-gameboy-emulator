@@ -22,6 +22,10 @@ enum Commands {
         #[arg(long)]
         debug: bool,
 
+        /// Skip the boot-up sequence
+        #[arg(long)]
+        skip_boot: bool,
+
         /// Use the classic green color scheme instead of grayscale
         #[arg(long)]
         classic_theme: bool,
@@ -85,6 +89,7 @@ fn run() -> Result<(), Error> {
         Commands::Run {
             boot,
             debug,
+            skip_boot,
             classic_theme,
             short_circuit,
             cart,
@@ -95,9 +100,11 @@ fn run() -> Result<(), Error> {
             let mut system = yokoi::system::System::init_options(
                 boot_rom_data,
                 cart,
+                yokoi::system::Mode::Dmg,
                 yokoi::system::Options {
+                    skip_boot,
                     short_circuit,
-                    dmg_theme: if classic_theme {
+                    theme: if classic_theme {
                         yokoi::frame::Theme::Classic
                     } else {
                         yokoi::frame::Theme::Grayscale
@@ -129,9 +136,8 @@ fn run() -> Result<(), Error> {
                     .init();
                 for i in 0.. {
                     debug!(frame = i);
-                    system
-                        .next_frame(Default::default())
-                        .map_err(Error::System)?;
+                    let input = yokoi::system::Input::<Vec<u8>>::default();
+                    system.next_frame(input).map_err(Error::System)?;
                 }
             } else {
                 let term = ratatui::try_init()?;

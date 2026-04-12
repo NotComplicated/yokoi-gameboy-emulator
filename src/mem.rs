@@ -1,7 +1,3 @@
-use std::cell::Cell;
-
-use tracing::trace;
-
 use crate::{
     cart::Cart,
     frame::Rgb555,
@@ -10,6 +6,9 @@ use crate::{
     timer::Timer,
     util::Hex,
 };
+use serde::{Deserialize, Serialize};
+use serde_bytes::ByteArray;
+use tracing::trace;
 
 pub const ROM_BANK_0_START: u16 = 0x0000;
 pub const ROM_BANK_N_START: u16 = 0x4000;
@@ -84,18 +83,23 @@ pub const OBJ_PRIORITY_MODE_REG: u16 = 0xFF6C;
 pub const WRAM_BANK_REG: u16 = 0xFF70;
 pub const IE_REG: u16 = 0xFFFF;
 
-type Sram = Box<[u8; 8 * 1024]>;
+type Sram = Box<ByteArray<{ 8 * 1024 }>>;
 
+#[derive(Serialize, Deserialize)]
 pub struct Memory {
     mode: Mode,
+    #[serde(skip)]
     boot_rom: Vec<u8>,
+    #[serde(skip)]
     cart: Cart,
     mbc: Mbc,
     lock: Lock,
+    #[serde(with = "serde_bytes")]
     vram: [u8; 8 * 1024],
-    vram_cgb: Option<Box<[u8; 8 * 1024]>>,
-    wram: [[u8; 4 * 1024]; 2],
-    wram_cgb: Option<Box<[[u8; 4 * 1024]; 6]>>,
+    vram_cgb: Option<Box<ByteArray<{ 8 * 1024 }>>>,
+    wram: [ByteArray<{ 4 * 1024 }>; 2],
+    wram_cgb: Option<Box<[ByteArray<{ 4 * 1024 }>; 6]>>,
+    #[serde(with = "serde_bytes")]
     oam: [u8; 160],
     joypad: Joypad,
     joypad_reg: u8,
@@ -116,11 +120,12 @@ pub struct Memory {
     cgb_ir: u8,
     cgb_obj_priority: u8,
     cgb_wram_bank: u8,
+    #[serde(with = "serde_bytes")]
     hram: [u8; 127],
     ie: u8,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Mbc {
     None {
         sram: Sram,
@@ -133,6 +138,7 @@ enum Mbc {
     },
     Two {
         rom_bank_reg: u8,
+        #[serde(with = "serde_bytes")]
         sram_4bit: [u8; 512],
         sram_enabled: bool,
     },
@@ -152,7 +158,7 @@ enum Mbc {
     },
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Mbc1ExtBank {
     Ram {
         advanced: bool,
@@ -166,14 +172,81 @@ enum Mbc1ExtBank {
     },
 }
 
-#[derive(PartialEq, Copy, Clone, Debug)]
+impl Mbc {
+    fn from_cart(cart: &Cart) -> Self {
+        for feature in cart.features() {
+            match feature {
+                crate::cart::Feature::Mbc1 => {
+                    let bank_count: u8 = cart
+                        .data()
+                        .len()
+                        .div_ceil(16 * 1024)
+                        .try_into()
+                        .expect("cart isn't too large");
+                    return Self::One {
+                        rom_bank_reg: 0,
+                        rom_bank_reg_mask: bank_count.next_power_of_two() - 1,
+                        sram_enabled: false,
+                        extended_bank: if bank_count > 32 {
+                            Mbc1ExtBank::Rom {
+                                advanced: false,
+                                rom_bank_upper_reg: 0,
+                                sram: Default::default(),
+                            }
+                        } else {
+                            Mbc1ExtBank::Ram {
+                                advanced: false,
+                                sram_bank_reg: 0,
+                                sram: Default::default(),
+                            }
+                        },
+                    };
+                }
+                crate::cart::Feature::Mbc2 => {
+                    return Self::Two {
+                        rom_bank_reg: 0,
+                        sram_4bit: [0; _],
+                        sram_enabled: false,
+                    };
+                }
+                crate::cart::Feature::Mbc3 => {
+                    return Self::Three {
+                        rom_bank_reg: 0,
+                        sram_bank_or_rtc_reg: 0,
+                        sram_and_rtc_enabled: false,
+                        sram: Default::default(),
+                        latching: false,
+                        rtc: [0; _],
+                    };
+                }
+                crate::cart::Feature::Mbc5 => {
+                    return Self::Five {
+                        rom_bank_reg: 0,
+                        sram_enabled: false,
+                        sram_bank_reg: 0,
+                        sram: Default::default(),
+                    };
+                }
+                crate::cart::Feature::Mbc6 | crate::cart::Feature::Mbc7 => {
+                    unimplemented!("very rare cart")
+                }
+                _ => {}
+            }
+        }
+        Self::None {
+            sram: Default::default(),
+        }
+    }
+}
+
+#[derive(PartialEq, Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum Lock {
     Unlocked,
     Oam,
     VramOam,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 struct Audio {
     master: u8,
     panning: u8,
@@ -203,7 +276,7 @@ struct Audio {
     ch4_ctrl: u8,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 struct Lcd {
     ctrl: u8,
     stat: u8,
@@ -231,71 +304,7 @@ pub enum Error {
 impl Memory {
     pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
         let is_cgb = mode == Mode::Cgb;
-        let mbc = 'mbc: {
-            for feature in cart.features() {
-                match feature {
-                    crate::cart::Feature::Mbc1 => {
-                        let bank_count: u8 = cart
-                            .data()
-                            .len()
-                            .div_ceil(16 * 1024)
-                            .try_into()
-                            .expect("cart isn't too large");
-                        break 'mbc Mbc::One {
-                            rom_bank_reg: 0,
-                            rom_bank_reg_mask: bank_count.next_power_of_two() - 1,
-                            sram_enabled: false,
-                            extended_bank: if bank_count > 32 {
-                                Mbc1ExtBank::Rom {
-                                    advanced: false,
-                                    rom_bank_upper_reg: 0,
-                                    sram: Sram::new([0; _]),
-                                }
-                            } else {
-                                Mbc1ExtBank::Ram {
-                                    advanced: false,
-                                    sram_bank_reg: 0,
-                                    sram: std::array::repeat(Sram::new([0; _])),
-                                }
-                            },
-                        };
-                    }
-                    crate::cart::Feature::Mbc2 => {
-                        break 'mbc Mbc::Two {
-                            rom_bank_reg: 0,
-                            sram_4bit: [0; _],
-                            sram_enabled: false,
-                        };
-                    }
-                    crate::cart::Feature::Mbc3 => {
-                        break 'mbc Mbc::Three {
-                            rom_bank_reg: 0,
-                            sram_bank_or_rtc_reg: 0,
-                            sram_and_rtc_enabled: false,
-                            sram: std::array::repeat(Sram::new([0; _])),
-                            latching: false,
-                            rtc: [0; _],
-                        };
-                    }
-                    crate::cart::Feature::Mbc5 => {
-                        break 'mbc Mbc::Five {
-                            rom_bank_reg: 0,
-                            sram_enabled: false,
-                            sram_bank_reg: 0,
-                            sram: std::array::repeat(Sram::new([0; _])),
-                        };
-                    }
-                    crate::cart::Feature::Mbc6 | crate::cart::Feature::Mbc7 => {
-                        unimplemented!("very rare cart")
-                    }
-                    _ => {}
-                }
-            }
-            Mbc::None {
-                sram: Sram::new([0; _]),
-            }
-        };
-
+        let mbc = Mbc::from_cart(&cart);
         Self {
             mode,
             boot_rom,
@@ -303,9 +312,9 @@ impl Memory {
             mbc,
             lock: Lock::Unlocked,
             vram: [0; _],
-            vram_cgb: is_cgb.then(|| Box::new([0; _])),
-            wram: [[0; _]; _],
-            wram_cgb: is_cgb.then(|| Box::new([[0; _]; _])),
+            vram_cgb: is_cgb.then(Default::default),
+            wram: Default::default(),
+            wram_cgb: is_cgb.then(Default::default),
             oam: [0; _],
             joypad: Default::default(),
             joypad_reg: 0,
@@ -329,6 +338,14 @@ impl Memory {
             hram: [0; _],
             ie: 0,
         }
+    }
+
+    pub fn set_cart(&mut self, cart: Cart) {
+        self.cart = cart;
+    }
+
+    pub fn reset_mbc(&mut self) {
+        self.mbc = Mbc::from_cart(&self.cart);
     }
 
     pub fn tick(&mut self) -> Result<(), Error> {
@@ -437,8 +454,9 @@ impl Memory {
                     extended_bank: Mbc1ExtBank::Ram { .. },
                     ..
                 } => {
-                    let addr = (((rom_bank_reg & rom_bank_reg_mask) as usize) << 14)
-                        + (addr - ROM_BANK_N_START) as usize;
+                    let rom_bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
+                    let rom_bank = rom_bank & rom_bank_reg_mask;
+                    let addr = ((rom_bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
                     Ok(&self.cart.data()[addr..])
                 }
                 Mbc::One {

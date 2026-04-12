@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+
 use crate::{
     audio::Apu,
     cart::Cart,
@@ -8,9 +10,12 @@ use crate::{
     render::{self, Ppu},
     util::Hex,
 };
-use tracing::trace;
+use serde::{Deserialize, Serialize};
+use tracing::{info, trace};
 
+#[derive(Serialize, Deserialize)]
 pub struct System {
+    #[serde(skip)]
     options: Options,
     reg_set: RegisterSet,
     memory: Memory,
@@ -20,9 +25,16 @@ pub struct System {
     apu: Apu,
     state: State,
     ime: bool,
+    cart_hash: String,
 }
 
-#[derive(Copy, Clone, PartialEq, Default, Debug)]
+#[derive(Default)]
+pub struct Input<W: Write> {
+    joypad: Joypad,
+    save_state: Option<W>,
+}
+
+#[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
 pub struct Joypad {
     pub start: bool,
     pub select: bool,
@@ -36,14 +48,18 @@ pub struct Joypad {
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Options {
-    pub dmg_theme: Theme,
+    pub theme: Theme,
     pub short_circuit: Option<u64>,
+    pub skip_boot: bool,
 }
 
 #[derive(Debug)]
 pub enum Error {
     Memory(mem::Error),
     Render(render::Error),
+    Load(rmp_serde::decode::Error),
+    WrongCart,
+    Save(rmp_serde::encode::Error),
     ShortCircuit,
 }
 
@@ -59,13 +75,14 @@ impl From<render::Error> for Error {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub(crate) enum Mode {
+#[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
+pub enum Mode {
+    #[default]
     Dmg,
     Cgb,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 enum State {
     Running,
     CondDelay(u8),
@@ -84,34 +101,72 @@ thread_local! {
 }
 
 impl System {
-    pub fn init(boot_rom: Vec<u8>, cart: Cart) -> Result<Self, Error> {
-        Self::init_options(boot_rom, cart, Default::default())
+    pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Result<Self, Error> {
+        Self::init_options(boot_rom, cart, mode, Default::default())
     }
 
-    pub fn init_options(boot_rom: Vec<u8>, cart: Cart, options: Options) -> Result<Self, Error> {
-        let mode = Mode::Dmg;
-        let memory = Memory::init(boot_rom, cart, mode);
-        let (current_op, next_pc) = memory.read_op(0)?;
-        let op_duration = current_op.properties().duration;
-
-        Ok(Self {
-            options,
-            reg_set: RegisterSet {
-                next_pc,
-                ..Default::default()
-            },
-            memory,
-            current_op,
-            op_duration,
-            ppu: Ppu::init(mode, options.dmg_theme),
-            apu: Apu::init(),
-            state: State::Running,
-            ime: false,
-        })
+    pub fn init_options(
+        boot_rom: Vec<u8>,
+        cart: Cart,
+        mode: Mode,
+        options: Options,
+    ) -> Result<Self, Error> {
+        let cart_hash = cart.hash();
+        if options.skip_boot {
+            let mut system = Self {
+                options,
+                cart_hash,
+                ..rmp_serde::from_slice(include_bytes!("../postboot.yokoistate"))
+                    .map_err(Error::Load)?
+            };
+            system.memory.set_cart(cart);
+            system.memory.reset_mbc();
+            Ok(system)
+        } else {
+            let memory = Memory::init(boot_rom, cart, mode);
+            let (current_op, next_pc) = memory.read_op(0)?;
+            let op_duration = current_op.properties().duration;
+            Ok(Self {
+                options,
+                reg_set: RegisterSet {
+                    next_pc,
+                    ..Default::default()
+                },
+                memory,
+                current_op,
+                op_duration,
+                ppu: Ppu::init(mode, options.theme),
+                apu: Apu::init(),
+                state: State::Running,
+                ime: false,
+                cart_hash,
+            })
+        }
     }
 
-    pub fn next_frame(&mut self, joypad: Joypad) -> Result<Frame, Error> {
-        self.memory.set_joypad(joypad);
+    pub fn load(reader: impl Read, cart: Cart) -> Result<Self, Error> {
+        Self::load_options(reader, cart, Default::default())
+    }
+
+    pub fn load_options(reader: impl Read, cart: Cart, options: Options) -> Result<Self, Error> {
+        let mut system: Self = rmp_serde::from_read(reader).map_err(Error::Load)?;
+        if system.cart_hash != cart.hash() {
+            return Err(Error::WrongCart);
+        }
+        system.options = options;
+        system.memory.set_cart(cart);
+        system.ppu.set_theme(options.theme);
+        Ok(system)
+    }
+
+    pub fn next_frame<W: Write>(&mut self, input: Input<W>) -> Result<Frame, Error> {
+        self.memory.set_joypad(input.joypad);
+        if let Some(mut writer) = input.save_state
+            && self.memory.read(mem::BOOT_ROM_CTRL_REG)? != 0
+        {
+            rmp_serde::encode::write(&mut writer, self).map_err(Error::Save)?;
+            info!("saved state");
+        }
         loop {
             if let Some(frame) = self.tick()? {
                 break Ok(frame);
@@ -251,18 +306,21 @@ impl System {
 
     fn ret(&mut self) -> Result<(), Error> {
         let sp = self.reg_set.sp;
-        self.reg_set.pc = u16::from_le_bytes([self.memory.read(sp)?, self.memory.read(sp + 1)?]);
+        self.reg_set.next_pc =
+            u16::from_le_bytes([self.memory.read(sp)?, self.memory.read(sp + 1)?]);
         self.reg_set.sp += 2;
+        trace!(pc = ?Hex(self.reg_set.next_pc), "return");
         Ok(())
     }
 
     fn call(&mut self, A16(a16): A16) -> Result<(), Error> {
-        let [pc_upper, pc_lower] = self.reg_set.pc.to_be_bytes();
+        let [pc_upper, pc_lower] = self.reg_set.next_pc.to_be_bytes();
         self.reg_set.sp -= 1;
         self.memory.write(self.reg_set.sp, pc_upper)?;
         self.reg_set.sp -= 1;
         self.memory.write(self.reg_set.sp, pc_lower)?;
-        self.reg_set.pc = a16;
+        self.reg_set.next_pc = a16;
+        trace!(pc = ?Hex(self.reg_set.next_pc), "call");
         Ok(())
     }
 
@@ -398,21 +456,24 @@ impl System {
                 self.reg_set.set_half_carry(false);
                 self.reg_set.set_carry(!self.reg_set.carry());
             }
-            Op::JrE8(E8(e8)) => self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into()),
+            Op::JrE8(E8(e8)) => {
+                self.reg_set.next_pc = self.reg_set.next_pc.wrapping_add_signed(e8.into())
+            }
             Op::JrCondE8(Cond::Z, E8(e8)) if self.reg_set.zero() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
+                self.reg_set.next_pc = self.reg_set.next_pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::Nz, E8(e8)) if !self.reg_set.zero() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
+                self.reg_set.next_pc = self.reg_set.next_pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::C, E8(e8)) if self.reg_set.carry() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
+                self.reg_set.next_pc = self.reg_set.next_pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(Cond::Nc, E8(e8)) if !self.reg_set.carry() => {
-                self.reg_set.pc = self.reg_set.pc.wrapping_add_signed(e8.into());
+                self.reg_set.next_pc = self.reg_set.next_pc.wrapping_add_signed(e8.into());
             }
             Op::JrCondE8(..) => return Ok(HandleOp::FalseCond),
             Op::Stop(_) => self.state = State::Stopped,
+            Op::LdR8R8(R8::B, R8::B) => return Err(Error::ShortCircuit), // common debugging breakpoint command
             Op::LdR8R8(r8_dest, r8_src) => self.write_r8(r8_dest, self.read_r8(r8_src)?)?,
             Op::Halt => self.state = State::Halted,
             Op::AddR8(r8) => {
@@ -558,20 +619,22 @@ impl System {
                 self.ret()?;
                 self.ime = true;
             }
-            Op::JpCondA16(Cond::Z, A16(a16)) if self.reg_set.zero() => self.reg_set.pc = a16,
-            Op::JpCondA16(Cond::Nz, A16(a16)) if !self.reg_set.zero() => self.reg_set.pc = a16,
-            Op::JpCondA16(Cond::C, A16(a16)) if self.reg_set.carry() => self.reg_set.pc = a16,
-            Op::JpCondA16(Cond::Nc, A16(a16)) if !self.reg_set.carry() => self.reg_set.pc = a16,
+            Op::JpCondA16(Cond::Z, A16(a16)) if self.reg_set.zero() => self.reg_set.next_pc = a16,
+            Op::JpCondA16(Cond::Nz, A16(a16)) if !self.reg_set.zero() => self.reg_set.next_pc = a16,
+            Op::JpCondA16(Cond::C, A16(a16)) if self.reg_set.carry() => self.reg_set.next_pc = a16,
+            Op::JpCondA16(Cond::Nc, A16(a16)) if !self.reg_set.carry() => {
+                self.reg_set.next_pc = a16
+            }
             Op::JpCondA16(..) => return Ok(HandleOp::FalseCond),
-            Op::JpA16(A16(a16)) => self.reg_set.pc = a16,
-            Op::JpHl => self.reg_set.pc = self.reg_set.hl(),
+            Op::JpA16(A16(a16)) => self.reg_set.next_pc = a16,
+            Op::JpHl => self.reg_set.next_pc = self.reg_set.hl(),
             Op::CallCondA16(Cond::Z, a16) if self.reg_set.zero() => self.call(a16)?,
             Op::CallCondA16(Cond::Nz, a16) if !self.reg_set.zero() => self.call(a16)?,
             Op::CallCondA16(Cond::C, a16) if self.reg_set.carry() => self.call(a16)?,
             Op::CallCondA16(Cond::Nc, a16) if !self.reg_set.carry() => self.call(a16)?,
             Op::CallCondA16(..) => return Ok(HandleOp::FalseCond),
             Op::CallA16(a16) => self.call(a16)?,
-            Op::Rst(Tgt3(tgt3)) => self.call(A16(u16::from_be_bytes([0x00, tgt3])))?,
+            Op::Rst(Tgt3(tgt3)) => self.call(A16(u16::from_be_bytes([0x00, tgt3 * 8])))?,
             Op::Pop(r16_stk) => {
                 let popped = u16::from_le_bytes([
                     self.memory.read(self.reg_set.sp)?,

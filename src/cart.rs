@@ -26,7 +26,9 @@ const LOGO_BYTES: &[u8] = &[
     0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
 ];
 
-#[derive(Debug)]
+const HASH_LEN: usize = 4096;
+
+#[derive(Default, Debug)]
 pub struct Cart(Vec<u8>);
 
 #[derive(Debug)]
@@ -84,6 +86,10 @@ impl Cart {
 
     pub fn data(&self) -> &[u8] {
         &self.0
+    }
+
+    pub fn hash(&self) -> String {
+        sha256::digest(&self.0[..HASH_LEN])
     }
 
     pub fn title(&self) -> &str {
