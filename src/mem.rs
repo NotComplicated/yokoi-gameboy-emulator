@@ -121,7 +121,7 @@ pub struct Memory {
     cgb_obj_priority: u8,
     cgb_wram_bank: u8,
     #[serde(with = "serde_bytes")]
-    hram: [u8; 127],
+    hram: [u8; (HRAM_END - HRAM_START) as _],
     ie: u8,
 }
 
@@ -245,8 +245,8 @@ impl Mbc {
         }
     }
 
-    fn bank_and_cart_addr(&self, addr: u16) -> Result<(u16, usize), Error> {
-        Ok(match addr {
+    fn bank_and_cart_addr(&self, addr: u16) -> Option<(u16, usize)> {
+        match addr {
             ROM_BANK_0_START..ROM_BANK_N_START => {
                 if let Self::One {
                     rom_bank_reg,
@@ -264,15 +264,15 @@ impl Mbc {
                     let bank_lower = rom_bank_reg & rom_bank_reg_mask;
                     let bank = (rom_bank_upper_reg << 5) + bank_lower;
                     let addr = ((bank as usize) << 14) + addr as usize;
-                    (bank.into(), addr)
+                    Some((bank.into(), addr))
                 } else {
                     // otherwise, simply read the first ROM bank
-                    (0, addr.into())
+                    Some((0, addr.into()))
                 }
             }
 
             ROM_BANK_N_START..VRAM_START => match self {
-                Self::None { .. } => (0, addr.into()),
+                Self::None { .. } => Some((0, addr.into())),
                 Self::One {
                     rom_bank_reg,
                     rom_bank_reg_mask,
@@ -282,7 +282,7 @@ impl Mbc {
                     let bank =
                         if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
                     let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    (bank.into(), addr)
+                    Some((bank.into(), addr))
                 }
                 Self::One {
                     rom_bank_reg,
@@ -298,23 +298,23 @@ impl Mbc {
                         if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
                     let bank = (rom_bank_upper_reg << 5) + bank_lower;
                     let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    (bank.into(), addr)
+                    Some((bank.into(), addr))
                 }
                 Self::Two { rom_bank_reg, .. } | Self::Three { rom_bank_reg, .. } => {
                     let bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
                     let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    (bank.into(), addr)
+                    Some((bank.into(), addr))
                 }
                 Self::Five { rom_bank_reg, .. } => {
                     // no bank == 0 check here
                     let addr =
                         ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    (*rom_bank_reg, addr)
+                    Some((*rom_bank_reg, addr))
                 }
             },
 
-            _ => return Err(Error::OutOfBounds(addr)),
-        })
+            _ => None,
+        }
     }
 }
 
@@ -412,7 +412,7 @@ impl Memory {
         }
     }
 
-    pub fn bank(&self, addr: u16) -> Result<u16, Error> {
+    pub fn bank(&self, addr: u16) -> Option<u16> {
         self.mbc.bank_and_cart_addr(addr).map(|(bank, _)| bank)
     }
 
@@ -499,7 +499,10 @@ impl Memory {
             }
 
             ROM_BANK_0_START..VRAM_START => {
-                let (_, addr) = self.mbc.bank_and_cart_addr(addr)?;
+                let (_, addr) = self
+                    .mbc
+                    .bank_and_cart_addr(addr)
+                    .ok_or(Error::OutOfBounds(addr))?;
                 Ok(&self.cart.data()[addr..])
             }
 
