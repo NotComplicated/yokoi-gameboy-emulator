@@ -1,6 +1,6 @@
 use tracing::debug;
 
-use crate::system;
+use crate::system::{Symbol, SymbolError, SymbolRead};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
@@ -14,15 +14,10 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Hex<T> {
     }
 }
 
-#[derive(Debug)]
-pub enum SymbolError {
-    Io(std::io::Error),
-    Parse(std::num::ParseIntError),
-}
-
 pub fn read_symbols(
-    symbols_reader: Box<dyn system::SymbolRead>,
-) -> Result<HashMap<(u16, u16), String>, SymbolError> {
+    symbols_reader: Box<dyn SymbolRead>,
+    mut breakpoints: Vec<String>,
+) -> Result<HashMap<(u16, u16), Symbol>, SymbolError> {
     let reader = BufReader::new(symbols_reader);
     let mut symbol_map = HashMap::new();
     for line in reader.lines() {
@@ -33,9 +28,18 @@ pub fn read_symbols(
         };
         let bank = u16::from_str_radix(bank, 16).map_err(SymbolError::Parse)?;
         let addr = u16::from_str_radix(addr, 16).map_err(SymbolError::Parse)?;
-        let name = fields.next().unwrap_or("n/a");
-        symbol_map.insert((bank, addr), name.into());
+        let name = fields.next().unwrap_or("n/a").into();
+        let r#break = breakpoints
+            .iter()
+            .position(|b| b == &name)
+            .map(|pos| breakpoints.remove(pos))
+            .is_some();
+        symbol_map.insert((bank, addr), Symbol { name, r#break });
     }
-    debug!(symbols = symbol_map.len(), "symbols loaded");
-    Ok(symbol_map)
+    if let Some(not_found) = breakpoints.pop() {
+        Err(SymbolError::BreakpointNotFound(not_found))
+    } else {
+        debug!(symbols = symbol_map.len(), "symbols loaded");
+        Ok(symbol_map)
+    }
 }

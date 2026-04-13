@@ -31,7 +31,9 @@ pub struct System {
     ime: bool,
     cart_hash: String,
     #[serde(skip)]
-    symbol_map: Option<HashMap<(u16, u16), String>>,
+    symbol_map: Option<HashMap<(u16, u16), Symbol>>,
+    #[serde(skip)]
+    breaking: Option<String>,
 }
 
 #[derive(Default)]
@@ -59,6 +61,7 @@ pub struct Options {
     pub debug: bool,
     pub skip_boot: bool,
     pub symbols: Option<Box<dyn SymbolRead>>,
+    pub breakpoints: Vec<String>,
 }
 
 pub trait SymbolRead: Read + Debug {}
@@ -72,7 +75,8 @@ pub enum Error {
     WrongCart,
     Save(rmp_serde::encode::Error),
     ShortCircuit,
-    Symbol(util::SymbolError),
+    Symbol(SymbolError),
+    Breakpoint(String),
 }
 
 impl From<mem::Error> for Error {
@@ -85,6 +89,13 @@ impl From<render::Error> for Error {
     fn from(err: render::Error) -> Self {
         Self::Render(err)
     }
+}
+
+#[derive(Debug)]
+pub enum SymbolError {
+    Io(std::io::Error),
+    Parse(std::num::ParseIntError),
+    BreakpointNotFound(String),
 }
 
 #[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
@@ -108,6 +119,11 @@ enum HandleOp {
     FalseCond,
 }
 
+pub(crate) struct Symbol {
+    pub name: String,
+    pub r#break: bool,
+}
+
 const POSTBOOT_STATE: &[u8] = include_bytes!("../postboot.yokoistate");
 
 thread_local! {
@@ -127,10 +143,11 @@ impl System {
     ) -> Result<Self, Error> {
         let cart_hash = cart.hash();
         let theme = options.theme;
+        let breakpoints = std::mem::take(&mut options.breakpoints);
         let symbol_map = options
             .symbols
             .take()
-            .map(util::read_symbols)
+            .map(|s| util::read_symbols(s, breakpoints))
             .transpose()
             .map_err(Error::Symbol)?;
 
@@ -166,6 +183,7 @@ impl System {
                 ime: false,
                 cart_hash,
                 symbol_map,
+                breaking: None,
             })
         }
     }
@@ -283,7 +301,11 @@ impl System {
             }
         }
 
-        Ok(frame)
+        if let Some(breakpoint) = self.breaking.take() {
+            Err(Error::Breakpoint(breakpoint))
+        } else {
+            Ok(frame)
+        }
     }
 
     fn read_r16(&self, r16: R16) -> u16 {
@@ -352,11 +374,12 @@ impl System {
     }
 
     fn handle_op(&mut self) -> Result<HandleOp, Error> {
-        if let Some(map) = &self.symbol_map {
-            let bank = self.memory.bank(self.reg_set.pc)?;
-            if let Some(symbol) = map.get(&(bank, self.reg_set.pc)) {
-                trace!(symbol);
-            }
+        if let Some(map) = &self.symbol_map
+            && let Some(bank) = self.memory.bank(self.reg_set.pc)
+            && let Some(Symbol { name, r#break }) = map.get(&(bank, self.reg_set.pc))
+        {
+            trace!(symbol = name);
+            self.breaking = r#break.then(|| name.clone());
         }
         trace!(op = ?Hex(self.current_op), registers = ?self.reg_set);
 

@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
 };
-use tracing::debug;
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
 use yokoi::{
     cart::{Cart, ColorSupport, Feature},
@@ -38,11 +38,11 @@ enum Commands {
         skip_boot: bool,
 
         /// Don't show terminal UI. For use within a debugger
-        #[arg(long)]
+        #[arg(long, conflicts_with = "new_window")]
         debug: bool,
 
         /// Log level when debugging. Overriden by RUST_LOG
-        #[arg(long, default_value_t = tracing::Level::INFO)]
+        #[arg(long, requires = "debug", default_value_t = tracing::Level::INFO)]
         log_level: tracing::Level,
 
         /// Short-circuit the emulator after N t-cycles
@@ -50,8 +50,12 @@ enum Commands {
         short_circuit: Option<u64>,
 
         /// Path to debug symbols used for debugging
-        #[arg(long)]
+        #[arg(long, requires = "debug")]
         symbols: Option<PathBuf>,
+
+        /// Set a breakpoint on a debug symbol. Can be provided multiple times
+        #[arg(short = 'B', long = "breakpoint", requires = "symbols")]
+        breakpoints: Vec<String>,
 
         /// Path to boot ROM file
         #[arg(short, long)]
@@ -95,6 +99,9 @@ fn main() {
         Ok(()) => {}
         Err(Error::Io(err)) => eprintln!("Error: {err}"),
         Err(Error::System(yokoi::system::Error::ShortCircuit)) => eprintln!("- Short-circuited -"),
+        Err(Error::System(yokoi::system::Error::Symbol(
+            yokoi::system::SymbolError::BreakpointNotFound(breakpoint),
+        ))) => eprintln!("'{breakpoint}' not found in symbols"),
         Err(Error::System(err)) => eprintln!("Internal system error: {err:?}"),
         Err(Error::Cart(yokoi::cart::Error(err))) => eprintln!("Error while parsing cart: {err}"),
     }
@@ -113,6 +120,7 @@ fn run() -> Result<(), Error> {
             log_level,
             short_circuit,
             symbols,
+            breakpoints,
             boot,
             cart,
         } => {
@@ -184,14 +192,26 @@ fn run() -> Result<(), Error> {
                         .transpose()
                         .map_err(Error::Io)?
                         .map(|f| Box::new(f) as _),
+                    breakpoints,
                 },
             )
             .map_err(Error::System)?;
             if debug {
+                let mut line = String::new();
                 for i in 0.. {
-                    debug!(frame = i);
                     let input = Input::default();
-                    system.next_frame(input).map_err(Error::System)?;
+                    match system.next_frame(input) {
+                        Ok(_) => debug!(frame = i),
+                        Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
+                            info!(breakpoint, "press enter to resume, 'q' to quit");
+                            io::stdin().read_line(&mut line)?;
+                            match line.trim() {
+                                "q" => break,
+                                _ => {}
+                            }
+                        }
+                        Err(err) => return Err(Error::System(err)),
+                    }
                 }
             } else {
                 let term = ratatui::try_init()?;
