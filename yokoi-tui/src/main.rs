@@ -3,18 +3,20 @@ mod tui;
 use clap::{Parser, Subcommand};
 use std::{
     fs::File,
-    io::{self, Write},
+    io::{self, BufRead, BufReader, Write},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
     process::{Command, Stdio},
 };
-use tracing::{debug, info};
-use tracing_subscriber::EnvFilter;
+use tracing::{error, info};
+use tracing_subscriber::{EnvFilter, fmt::MakeWriter};
 use yokoi::{
     cart::{Cart, ColorSupport, Feature},
     frame::Theme,
     system::{Input, Mode, Options, System},
 };
 
+/// Interface with the Yokoi emulator backend from the terminal.
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -38,12 +40,16 @@ enum Commands {
         skip_boot: bool,
 
         /// Don't show terminal UI. For use within a debugger
-        #[arg(long, conflicts_with = "new_window")]
+        #[arg(long)]
         debug: bool,
 
         /// Log level when debugging. Overriden by RUST_LOG
         #[arg(long, requires = "debug", default_value_t = tracing::Level::INFO)]
         log_level: tracing::Level,
+
+        /// Send logs to this socket address
+        #[arg(long, requires = "debug")]
+        log_socket: Option<SocketAddr>,
 
         /// Short-circuit the emulator after N t-cycles
         #[arg(long)]
@@ -82,6 +88,7 @@ enum Commands {
     },
 }
 
+#[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
     System(yokoi::system::Error),
@@ -113,39 +120,51 @@ fn run() -> Result<(), Error> {
 
     match cli.command {
         Commands::Run {
-            new_window,
+            new_window: true, ..
+        } => {
+            let server = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?;
+            let addr = server.local_addr()?.to_string();
+            let mut runner =
+                Command::new("ghostty")
+                    .args(
+                        [
+                            "--font-size=5",
+                            "--window-width=160",
+                            "--window-height=144",
+                            "-e",
+                        ]
+                        .into_iter()
+                        .map(Into::into)
+                        .chain(std::env::args().filter(|arg| {
+                            !["--new-window", "--log-socket"].contains(&arg.as_str())
+                        }))
+                        .chain(["--log-socket".into(), addr]),
+                    )
+                    .stderr(Stdio::null())
+                    .spawn()?;
+            let (client, _) = server.accept()?;
+            let log_messages = BufReader::new(client);
+            for line in log_messages.lines() {
+                writeln!(out, "{}", line?)?;
+            }
+            runner.wait()?;
+        }
+
+        Commands::Run {
             classic_theme,
             skip_boot,
             debug,
             log_level,
+            log_socket,
             short_circuit,
             symbols,
             breakpoints,
             boot,
             cart,
+            ..
         } => {
-            if new_window {
-                Command::new("ghostty")
-                    .args([
-                        "--font-size=5",
-                        "--window-width=160",
-                        "--window-height=144",
-                        &format!(
-                            "--command={}",
-                            std::env::args()
-                                .filter(|arg| arg != "--new-window")
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        ),
-                    ])
-                    .stderr(Stdio::null())
-                    .spawn()?
-                    .wait()?;
-                return Ok(());
-            }
             if debug {
-                drop(out);
-                tracing_subscriber::fmt()
+                let logger = tracing_subscriber::fmt()
                     .with_env_filter(
                         EnvFilter::builder()
                             .with_default_directive(log_level.into())
@@ -156,21 +175,24 @@ fn run() -> Result<(), Error> {
                     .with_target(false)
                     .fmt_fields(tracing_subscriber::fmt::format::debug_fn(
                         |writer, field, value| writeln!(writer, "{}: {value:?}", field.name()),
-                    ))
-                    .with_writer(|| {
-                        struct Writer(io::StdoutLock<'static>);
-                        impl io::Write for Writer {
-                            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                                self.0.write(buf).map_err(|_| std::process::exit(0))
-                            }
-                            fn flush(&mut self) -> io::Result<()> {
-                                self.0.flush()
-                            }
+                    ));
+                if let Some(addr) = log_socket {
+                    struct LogStream(TcpStream);
+                    impl<'a> MakeWriter<'a> for LogStream {
+                        type Writer = &'a TcpStream;
+                        fn make_writer(&'a self) -> Self::Writer {
+                            &self.0
                         }
-                        Writer(io::stdout().lock())
-                    })
-                    .init();
+                    }
+                    logger
+                        .with_writer(LogStream(TcpStream::connect(addr)?))
+                        .init();
+                } else {
+                    drop(out);
+                    logger.with_writer(io::stdout).init();
+                }
             }
+
             let boot_rom_data = std::fs::read(&boot)?;
             let cart_data = std::fs::read(&cart)?;
             let cart = Cart::new(cart_data).map_err(Error::Cart)?;
@@ -196,13 +218,21 @@ fn run() -> Result<(), Error> {
                 },
             )
             .map_err(Error::System)?;
-            if debug {
+
+            // if this a lone debugging session (not connected to a server), don't create a TUI
+            if debug && log_socket.is_none() {
                 let mut line = String::new();
-                for i in 0.. {
+                loop {
                     let input = Input::default();
                     match system.next_frame(input) {
-                        Ok(_) => debug!(frame = i),
+                        Ok(_) => {}
                         Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
+                            for (i, frame) in system.stack_frames().iter().enumerate() {
+                                let bank =
+                                    frame.bank.map_or_else(|| "N/A".into(), |b| b.to_string());
+                                let address = format!("{:04X}", frame.addr);
+                                info!(frame = i, %bank, %address, symbol = frame.latest_symbol);
+                            }
                             info!(breakpoint, "press enter to resume, 'q' to quit");
                             io::stdin().read_line(&mut line)?;
                             match line.trim() {
@@ -215,9 +245,10 @@ fn run() -> Result<(), Error> {
                 }
             } else {
                 let term = ratatui::try_init()?;
-                let run_result = tui::run(term, system);
+                if let Err(error) = tui::run(term, system) {
+                    error!(?error);
+                }
                 ratatui::restore();
-                run_result?;
             }
         }
 

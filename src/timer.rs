@@ -28,7 +28,7 @@ impl Timer {
         let sys_prev = u16::from_be_bytes(self.sys);
         let sys = sys_prev.wrapping_add(1);
         self.sys = sys.to_be_bytes();
-        if (sys_prev >> 12) % 2 == 1 && (sys >> 12) % 2 == 0 {
+        if !(sys_prev >> 12).is_multiple_of(2) && (sys >> 12).is_multiple_of(2) {
             result.div_apu = true;
         }
         match &mut self.state {

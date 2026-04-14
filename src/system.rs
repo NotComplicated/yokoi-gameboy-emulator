@@ -15,7 +15,7 @@ use crate::{
     util::{self, Hex},
 };
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace};
+use tracing::{debug, info, trace};
 
 #[derive(Serialize, Deserialize)]
 pub struct System {
@@ -30,6 +30,8 @@ pub struct System {
     state: State,
     ime: bool,
     cart_hash: String,
+    #[serde(skip)]
+    stack_frames: Vec<StackFrame>,
     #[serde(skip)]
     symbol_map: Option<HashMap<(u16, u16), Symbol>>,
     #[serde(skip)]
@@ -114,6 +116,13 @@ enum State {
 }
 
 #[derive(Debug)]
+pub struct StackFrame {
+    pub bank: Option<u16>,
+    pub addr: u16,
+    pub latest_symbol: Option<String>,
+}
+
+#[derive(Debug)]
 enum HandleOp {
     Handled,
     FalseCond,
@@ -182,6 +191,7 @@ impl System {
                 state: State::Running,
                 ime: false,
                 cart_hash,
+                stack_frames: vec![],
                 symbol_map,
                 breaking: None,
             })
@@ -214,9 +224,14 @@ impl System {
         }
         loop {
             if let Some(frame) = self.tick()? {
+                debug!("new frame");
                 break Ok(frame);
             }
         }
+    }
+
+    pub fn stack_frames(&self) -> &[StackFrame] {
+        &self.stack_frames
     }
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {
@@ -358,6 +373,7 @@ impl System {
         self.reg_set.next_pc =
             u16::from_le_bytes([self.memory.read(sp)?, self.memory.read(sp + 1)?]);
         self.reg_set.sp += 2;
+        self.stack_frames.pop();
         trace!(pc = ?Hex(self.reg_set.next_pc), "return");
         Ok(())
     }
@@ -369,6 +385,11 @@ impl System {
         self.reg_set.sp -= 1;
         self.memory.write(self.reg_set.sp, pc_lower)?;
         self.reg_set.next_pc = a16;
+        self.stack_frames.push(StackFrame {
+            bank: self.memory.bank(self.reg_set.pc),
+            addr: self.reg_set.next_pc,
+            latest_symbol: None,
+        });
         trace!(pc = ?Hex(self.reg_set.next_pc), "call");
         Ok(())
     }
@@ -380,6 +401,13 @@ impl System {
         {
             trace!(symbol = name);
             self.breaking = r#break.then(|| name.clone());
+            if let Some(StackFrame { latest_symbol, .. }) = self.stack_frames.last_mut() {
+                if let Some(prev_name) = latest_symbol {
+                    prev_name.clone_from(name);
+                } else {
+                    *latest_symbol = Some(name.clone());
+                }
+            }
         }
         trace!(op = ?Hex(self.current_op), registers = ?self.reg_set);
 
@@ -734,7 +762,7 @@ impl System {
                     ),
                     Prefixed::Sla => (value << 1, value & 0b10000000 != 0),
                     Prefixed::Sra => ((value >> 1) | (value & 0b10000000), value % 2 == 1),
-                    Prefixed::Swap => ((value << 4) | (value >> 4), false),
+                    Prefixed::Swap => (value.rotate_right(4), false),
                     Prefixed::Srl => (value >> 1, value % 2 == 1),
                     Prefixed::Bit(B3(b3)) => {
                         self.reg_set.set_zero((value >> b3) % 2 == 0);

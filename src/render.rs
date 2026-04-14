@@ -620,16 +620,18 @@ impl Ppu {
                         self.state = State::Hblank;
                         memory.set_lock(mem::Lock::Unlocked);
                     } else {
-                        if self.window_enabled && self.window_latched && !*in_window {
-                            if memory.read(mem::WINDOW_X_REG)? == *x + 7 {
-                                *fetcher = Fetcher::Window {
-                                    x: 0,
-                                    progress: FETCH_STEPS,
-                                    cached: None,
-                                    obj_queued: None,
-                                };
-                                *in_window = true;
-                            }
+                        if self.window_enabled
+                            && self.window_latched
+                            && !*in_window
+                            && memory.read(mem::WINDOW_X_REG)? == *x + 7
+                        {
+                            *fetcher = Fetcher::Window {
+                                x: 0,
+                                progress: FETCH_STEPS,
+                                cached: None,
+                                obj_queued: None,
+                            };
+                            *in_window = true;
                         }
                         if self.obj_enabled {
                             for i in 0..oam.len {
