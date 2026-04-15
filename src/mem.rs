@@ -6,9 +6,9 @@ use crate::{
     timer::Timer,
     util::Hex,
 };
+use log::trace;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
-use tracing::trace;
 
 pub const ROM_BANK_0_START: u16 = 0x0000;
 pub const ROM_BANK_N_START: u16 = 0x4000;
@@ -309,7 +309,7 @@ impl Mbc {
                     // no bank == 0 check here
                     let addr =
                         ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Some((*rom_bank_reg, addr))
+                    Some(((addr >> 14) as _, addr))
                 }
             },
 
@@ -707,7 +707,7 @@ impl Memory {
     }
 
     pub fn write_slice(&mut self, addr: u16, data: &[u8]) -> Result<(), Error> {
-        trace!(addr = ?Hex(addr), data = ?Hex(data), "mem write");
+        trace!(addr:? = Hex(addr), data:? = Hex(data); "mem write");
         fn as_slice(byte: &mut u8) -> &mut [u8] {
             std::slice::from_mut(byte)
         }

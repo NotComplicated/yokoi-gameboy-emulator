@@ -1,15 +1,18 @@
+mod logger;
 mod tui;
 
 use clap::{Parser, Subcommand};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use log::{LevelFilter, error, info};
+use logger::Logger;
 use std::{
+    fmt::{Display, Formatter},
     fs::File,
     io::{self, BufRead, BufReader, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
     process::{Command, Stdio},
 };
-use tracing::{error, info};
-use tracing_subscriber::{EnvFilter, fmt::MakeWriter};
 use yokoi::{
     cart::{Cart, ColorSupport, Feature},
     frame::Theme,
@@ -44,11 +47,11 @@ enum Commands {
         debug: bool,
 
         /// Log level when debugging. Overriden by RUST_LOG
-        #[arg(long, requires = "debug", default_value_t = tracing::Level::INFO)]
-        log_level: tracing::Level,
+        #[arg(long, requires = "debug", default_value_t = LevelFilter::Info)]
+        log_level: LevelFilter,
 
         /// Send logs to this socket address
-        #[arg(long, requires = "debug")]
+        #[arg(long)]
         log_socket: Option<SocketAddr>,
 
         /// Short-circuit the emulator after N t-cycles
@@ -95,6 +98,23 @@ pub enum Error {
     Cart(yokoi::cart::Error),
 }
 
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(err) => writeln!(f, "Error: {err}"),
+            Self::System(yokoi::system::Error::ShortCircuit) => writeln!(f, "- Short-circuited -"),
+            Self::System(yokoi::system::Error::Symbol(
+                yokoi::system::SymbolError::BreakpointNotFound(breakpoint),
+            )) => writeln!(f, "'{breakpoint}' not found in symbols"),
+            Self::System(yokoi::system::Error::Breakpoint(breakpoint)) => {
+                writeln!(f, "Reached breakpoint: {breakpoint}")
+            }
+            Self::System(err) => writeln!(f, "Internal system error: {err:?}"),
+            Self::Cart(yokoi::cart::Error(err)) => writeln!(f, "Error while parsing cart: {err}"),
+        }
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
@@ -102,15 +122,11 @@ impl From<std::io::Error> for Error {
 }
 
 fn main() {
-    match run() {
-        Ok(()) => {}
-        Err(Error::Io(err)) => eprintln!("Error: {err}"),
-        Err(Error::System(yokoi::system::Error::ShortCircuit)) => eprintln!("- Short-circuited -"),
-        Err(Error::System(yokoi::system::Error::Symbol(
-            yokoi::system::SymbolError::BreakpointNotFound(breakpoint),
-        ))) => eprintln!("'{breakpoint}' not found in symbols"),
-        Err(Error::System(err)) => eprintln!("Internal system error: {err:?}"),
-        Err(Error::Cart(yokoi::cart::Error(err))) => eprintln!("Error while parsing cart: {err}"),
+    if let Err(err) = run() {
+        eprintln!("{err}");
+    }
+    if crossterm::terminal::is_raw_mode_enabled().unwrap() {
+        crossterm::terminal::disable_raw_mode().unwrap();
     }
 }
 
@@ -163,34 +179,22 @@ fn run() -> Result<(), Error> {
             cart,
             ..
         } => {
+            let stream = log_socket
+                .map(|addr| TcpStream::connect(addr))
+                .transpose()?;
             if debug {
-                let logger = tracing_subscriber::fmt()
-                    .with_env_filter(
-                        EnvFilter::builder()
-                            .with_default_directive(log_level.into())
-                            .from_env_lossy(),
-                    )
-                    .without_time()
-                    .with_level(false)
-                    .with_target(false)
-                    .fmt_fields(tracing_subscriber::fmt::format::debug_fn(
-                        |writer, field, value| writeln!(writer, "{}: {value:?}", field.name()),
-                    ));
-                if let Some(addr) = log_socket {
-                    struct LogStream(TcpStream);
-                    impl<'a> MakeWriter<'a> for LogStream {
-                        type Writer = &'a TcpStream;
-                        fn make_writer(&'a self) -> Self::Writer {
-                            &self.0
-                        }
-                    }
-                    logger
-                        .with_writer(LogStream(TcpStream::connect(addr)?))
-                        .init();
+                if let Some(stream) = stream {
+                    Logger(stream).init();
                 } else {
                     drop(out);
-                    logger.with_writer(io::stdout).init();
+                    Logger(io::stdout()).init();
                 }
+                log::set_max_level(
+                    std::env::var("RUST_LOG")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(log_level),
+                );
             }
 
             let boot_rom_data = std::fs::read(&boot)?;
@@ -221,32 +225,54 @@ fn run() -> Result<(), Error> {
 
             // if this a lone debugging session (not connected to a server), don't create a TUI
             if debug && log_socket.is_none() {
-                let mut line = String::new();
                 loop {
                     let input = Input::default();
-                    match system.next_frame(input) {
-                        Ok(_) => {}
-                        Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
-                            for (i, frame) in system.stack_frames().iter().enumerate() {
-                                let bank =
-                                    frame.bank.map_or_else(|| "N/A".into(), |b| b.to_string());
-                                let address = format!("{:04X}", frame.addr);
-                                info!(frame = i, %bank, %address, symbol = frame.latest_symbol);
+                    if let Err(err) = system.next_frame(input) {
+                        if let yokoi::system::Error::Breakpoint(breakpoint) = err {
+                            info!(breakpoint;"");
+                            info!("press enter to resume, 's' for a stack trace, 'q' to quit");
+                            crossterm::terminal::enable_raw_mode()?;
+                            loop {
+                                if let Event::Key(KeyEvent {
+                                    code,
+                                    kind: KeyEventKind::Press,
+                                    ..
+                                }) = crossterm::event::read()?
+                                {
+                                    match code {
+                                        KeyCode::Enter => break,
+                                        KeyCode::Char('q') => {
+                                            return Ok(());
+                                        }
+                                        KeyCode::Char('s') => {
+                                            crossterm::terminal::disable_raw_mode()?;
+                                            for (i, frame) in
+                                                system.stack_frames().iter().enumerate()
+                                            {
+                                                info!(
+                                                    frame = i,
+                                                    bank = frame.bank,
+                                                    address = format!("{:04X}", frame.addr),
+                                                    symbol = frame.latest_symbol
+                                                    ;""
+                                                );
+                                            }
+                                            crossterm::terminal::enable_raw_mode()?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
                             }
-                            info!(breakpoint, "press enter to resume, 'q' to quit");
-                            io::stdin().read_line(&mut line)?;
-                            match line.trim() {
-                                "q" => break,
-                                _ => {}
-                            }
+                            crossterm::terminal::disable_raw_mode()?;
+                        } else {
+                            return Err(Error::System(err));
                         }
-                        Err(err) => return Err(Error::System(err)),
                     }
                 }
             } else {
                 let term = ratatui::try_init()?;
-                if let Err(error) = tui::run(term, system) {
-                    error!(?error);
+                if let Err(err) = tui::run(term, system) {
+                    error!("{err}");
                 }
                 ratatui::restore();
             }

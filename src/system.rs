@@ -14,8 +14,8 @@ use crate::{
     render::{self, Ppu},
     util::{self, Hex},
 };
+use log::{debug, info, trace};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, trace};
 
 #[derive(Serialize, Deserialize)]
 pub struct System {
@@ -161,7 +161,7 @@ impl System {
             .map_err(Error::Symbol)?;
 
         if options.skip_boot {
-            info!(?options, "system initialized");
+            info!(options:?; "system initialized");
             let mut system = Self {
                 options,
                 cart_hash,
@@ -176,7 +176,7 @@ impl System {
             let memory = Memory::init(boot_rom, cart, mode);
             let (current_op, next_pc) = memory.read_op(0)?;
             let op_duration = current_op.properties().duration;
-            info!(?options, "system initialized");
+            info!(options:?; "system initialized");
             Ok(Self {
                 options,
                 reg_set: RegisterSet {
@@ -209,7 +209,7 @@ impl System {
         }
         system.memory.set_cart(cart);
         system.ppu.set_theme(options.theme);
-        info!(?options, "system loaded from save state");
+        info!(options:?; "system loaded from save state");
         system.options = options;
         Ok(system)
     }
@@ -373,8 +373,12 @@ impl System {
         self.reg_set.next_pc =
             u16::from_le_bytes([self.memory.read(sp)?, self.memory.read(sp + 1)?]);
         self.reg_set.sp += 2;
-        self.stack_frames.pop();
-        trace!(pc = ?Hex(self.reg_set.next_pc), "return");
+
+        if self.options.debug {
+            self.stack_frames.pop();
+        }
+
+        trace!(pc:? = Hex(self.reg_set.next_pc); "return");
         Ok(())
     }
 
@@ -385,12 +389,16 @@ impl System {
         self.reg_set.sp -= 1;
         self.memory.write(self.reg_set.sp, pc_lower)?;
         self.reg_set.next_pc = a16;
-        self.stack_frames.push(StackFrame {
-            bank: self.memory.bank(self.reg_set.pc),
-            addr: self.reg_set.next_pc,
-            latest_symbol: None,
-        });
-        trace!(pc = ?Hex(self.reg_set.next_pc), "call");
+
+        if self.options.debug {
+            self.stack_frames.push(StackFrame {
+                bank: self.memory.bank(self.reg_set.next_pc),
+                addr: self.reg_set.next_pc,
+                latest_symbol: None,
+            });
+        }
+
+        trace!(pc:? = Hex(self.reg_set.next_pc); "call");
         Ok(())
     }
 
@@ -399,7 +407,7 @@ impl System {
             && let Some(bank) = self.memory.bank(self.reg_set.pc)
             && let Some(Symbol { name, r#break }) = map.get(&(bank, self.reg_set.pc))
         {
-            trace!(symbol = name);
+            trace!(symbol = name;"");
             self.breaking = r#break.then(|| name.clone());
             if let Some(StackFrame { latest_symbol, .. }) = self.stack_frames.last_mut() {
                 if let Some(prev_name) = latest_symbol {
@@ -409,7 +417,7 @@ impl System {
                 }
             }
         }
-        trace!(op = ?Hex(self.current_op), registers = ?self.reg_set);
+        trace!(op:? = Hex(self.current_op), registers:? = self.reg_set;"");
 
         match self.current_op {
             Op::Nop => {}

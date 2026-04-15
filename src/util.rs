@@ -1,18 +1,31 @@
-use tracing::debug;
-
-use crate::system::{Symbol, SymbolError, SymbolRead};
+use crate::{
+    opcode::Op,
+    system::{Symbol, SymbolError, SymbolRead},
+};
+use core::fmt;
+use log::debug;
 use std::{
     collections::HashMap,
+    fmt::{Debug, Formatter},
     io::{BufRead, BufReader},
 };
 
-pub struct Hex<T: std::fmt::Debug>(pub T);
+pub struct Hex<T: Debug>(pub T);
 
-impl<T: std::fmt::Debug> std::fmt::Debug for Hex<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:02X?}", self.0)
-    }
+macro_rules! hex_impl {
+    ($t:ty, $size:literal) => {
+        impl Debug for Hex<$t> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                write!(f, "{:0size$X?}", self.0, size = $size)
+            }
+        }
+    };
 }
+hex_impl!(u8, 2);
+hex_impl!(u16, 4);
+hex_impl!(u32, 8);
+hex_impl!(&[u8], 2);
+hex_impl!(Op, 4);
 
 pub fn read_symbols(
     symbols_reader: Box<dyn SymbolRead>,
@@ -39,7 +52,7 @@ pub fn read_symbols(
     if let Some(not_found) = breakpoints.pop() {
         Err(SymbolError::BreakpointNotFound(not_found))
     } else {
-        debug!(symbols = symbol_map.len(), "symbols loaded");
+        debug!(symbols = symbol_map.len(); "symbols loaded");
         Ok(symbol_map)
     }
 }
