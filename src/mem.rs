@@ -83,6 +83,10 @@ pub const OBJ_PRIORITY_MODE_REG: u16 = 0xFF6C;
 pub const WRAM_BANK_REG: u16 = 0xFF70;
 pub const IE_REG: u16 = 0xFFFF;
 
+const TILES_LEN: usize = (0x9800 - VRAM_START) as usize / std::mem::size_of::<Tile>();
+
+pub type Tile = [(u8, u8); 8];
+
 type Sram = Box<ByteArray<{ 8 * 1024 }>>;
 
 #[derive(Serialize, Deserialize)]
@@ -95,7 +99,7 @@ pub struct Memory {
     mbc: Mbc,
     lock: Lock,
     #[serde(with = "serde_bytes")]
-    vram: [u8; 8 * 1024],
+    vram: [u8; { SRAM_START - VRAM_START } as _],
     vram_cgb: Option<Box<ByteArray<{ 8 * 1024 }>>>,
     wram: [ByteArray<{ 4 * 1024 }>; 2],
     wram_cgb: Option<Box<[ByteArray<{ 4 * 1024 }>; 6]>>,
@@ -1079,6 +1083,8 @@ impl Memory {
             (For::Both, "STAT", LCD_STAT_REG),
             (For::Both, "SCY", SCROLL_Y_REG),
             (For::Both, "SCX", SCROLL_X_REG),
+            (For::Both, "WX", WINDOW_X_REG),
+            (For::Both, "WY", WINDOW_Y_REG),
             (For::Only(Mode::Dmg), "BGP", BG_PALETTE_REG),
             (For::Only(Mode::Dmg), "OBP0", OBJ_PALETTE_0_REG),
             (For::Only(Mode::Dmg), "OBP1", OBJ_PALETTE_1_REG),
@@ -1126,5 +1132,12 @@ impl Memory {
                 self.read(prev_addr).unwrap(),
             );
         }
+    }
+
+    pub fn tiles(&self) -> [Tile; TILES_LEN] {
+        std::array::from_fn(|i| {
+            let offset = i * std::mem::size_of::<Tile>();
+            std::array::from_fn(|j| (self.vram[offset + j * 2], self.vram[offset + j * 2 + 1]))
+        })
     }
 }

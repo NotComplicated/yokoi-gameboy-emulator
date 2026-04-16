@@ -8,7 +8,7 @@ use crate::{
     audio::Apu,
     cart::Cart,
     frame::{Frame, Theme},
-    mem::{self, Memory},
+    mem::{self, Memory, Tile},
     opcode::*,
     register::RegisterSet,
     render::{self, Ppu},
@@ -244,6 +244,10 @@ impl System {
 
     pub fn log_mem_registers(&self) {
         self.memory.log_registers();
+    }
+
+    pub fn vram_tiles(&self) -> [Tile; 384] {
+        self.memory.tiles()
     }
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {
