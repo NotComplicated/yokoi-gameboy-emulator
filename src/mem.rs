@@ -486,10 +486,6 @@ impl Memory {
         &self.oam
     }
 
-    pub fn write(&mut self, addr: u16, data: u8) -> Result<(), Error> {
-        self.write_slice(addr, &[data])
-    }
-
     fn read_inner(&self, addr: u16, ppu: bool) -> Result<&[u8], Error> {
         fn as_slice(byte: &u8) -> &[u8] {
             std::slice::from_ref(byte)
@@ -710,7 +706,19 @@ impl Memory {
         }
     }
 
+    pub fn write(&mut self, addr: u16, data: u8) -> Result<(), Error> {
+        self.write_slice_inner(addr, &[data], false)
+    }
+
+    pub fn write_ppu(&mut self, addr: u16, data: u8) -> Result<(), Error> {
+        self.write_slice_inner(addr, &[data], true)
+    }
+
     pub fn write_slice(&mut self, addr: u16, data: &[u8]) -> Result<(), Error> {
+        self.write_slice_inner(addr, data, false)
+    }
+
+    fn write_slice_inner(&mut self, addr: u16, data: &[u8], ppu: bool) -> Result<(), Error> {
         trace!(addr:? = Hex(addr), data:? = Hex(data); "mem write");
         fn as_slice(byte: &mut u8) -> &mut [u8] {
             std::slice::from_mut(byte)
@@ -883,7 +891,7 @@ impl Memory {
             },
 
             ERAM_START..OAM_START => {
-                return self.write_slice(addr - (ERAM_START - WRAM_BANK_0_START), data);
+                return self.write_slice_inner(addr - (ERAM_START - WRAM_BANK_0_START), data, ppu);
             }
 
             OAM_START..OAM_END => {
@@ -981,7 +989,10 @@ impl Memory {
             }
 
             LCD_CTRL_REG => as_slice(&mut self.lcd.ctrl),
-            LCD_STAT_REG => as_slice(&mut self.lcd.stat),
+            LCD_STAT_REG => {
+                self.lcd.stat = (data[0] & 0b11111100) | (self.lcd.stat & 0b00000011);
+                return Ok(());
+            }
             SCROLL_Y_REG => as_slice(&mut self.lcd.scroll_y),
             SCROLL_X_REG => as_slice(&mut self.lcd.scroll_x),
             LY_REG => as_slice(&mut self.lcd.ly),

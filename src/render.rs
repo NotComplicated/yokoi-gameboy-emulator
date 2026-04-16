@@ -220,7 +220,7 @@ impl Ppu {
             State::Hblank => {
                 if self.dot == DOT_END - 1 {
                     self.ly += 1;
-                    memory.write(mem::LY_REG, self.ly)?;
+                    memory.write_ppu(mem::LY_REG, self.ly)?;
                     if self.ly < VBLANK_LY_START {
                         if !self.window_latched {
                             self.window_latched = self.ly == memory.read(mem::WINDOW_Y_REG)?;
@@ -230,7 +230,7 @@ impl Ppu {
                         };
                     } else {
                         frame = Some(self.frame.clone());
-                        memory.write(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000001)?;
+                        memory.write_ppu(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000001)?;
                         self.state = State::Vblank;
                     };
                 }
@@ -247,7 +247,7 @@ impl Ppu {
                             oam: Default::default(),
                         };
                     }
-                    memory.write(mem::LY_REG, self.ly)?;
+                    memory.write_ppu(mem::LY_REG, self.ly)?;
                 }
             }
 
@@ -684,7 +684,7 @@ impl Ppu {
             .map(u8::from)
             .fold(0u8, |acc, b| (acc << 1) | b);
         if stat != self.prev_stat {
-            memory.write(mem::LCD_STAT_REG, stat)?;
+            memory.write_ppu(mem::LCD_STAT_REG, stat)?;
             self.prev_stat = stat;
         }
         // if LY=LYC or a mode interrupt is enabled, and the condition is met, set LCD IF
@@ -693,7 +693,7 @@ impl Ppu {
             | [_, _, true, _, _, _, true, false]
             | [_, _, _, true, _, _, false, true]
             | [_, _, _, _, true, _, false, false] => {
-                memory.write(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000010)?
+                memory.write_ppu(mem::IF_REG, memory.read(mem::IF_REG)? | 0b00000010)?
             }
             _ => {}
         }

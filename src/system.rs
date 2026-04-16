@@ -322,7 +322,9 @@ impl System {
                 if (ie & mask) != 0 && (interrupts & mask) != 0 {
                     self.memory.write(mem::IF_REG, interrupts & !mask)?;
                     self.ime = false;
+                    self.reg_set.next_pc = self.reg_set.pc;
                     self.call(A16(address))?;
+                    self.reg_set.pc = self.reg_set.next_pc;
                     (self.current_op, self.reg_set.next_pc) =
                         self.memory.read_op(self.reg_set.pc)?;
                     self.state = State::Running;
@@ -432,6 +434,9 @@ impl System {
                     *latest_symbol = Some(name.clone());
                 }
             }
+        }
+        if let Some(StackFrame { addr, .. }) = self.stack_frames.last_mut() {
+            *addr = self.reg_set.pc;
         }
         trace!(op:? = Hex(self.current_op), registers:? = self.reg_set;"");
 
