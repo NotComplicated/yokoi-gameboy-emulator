@@ -6,7 +6,7 @@ use crate::{
     timer::Timer,
     util::Hex,
 };
-use log::trace;
+use log::{info, trace};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
 
@@ -1055,6 +1055,76 @@ impl Memory {
         } else {
             slice[..data.len()].copy_from_slice(data);
             Ok(())
+        }
+    }
+
+    pub fn log_registers(&self) {
+        enum For {
+            Only(Mode),
+            Both,
+        }
+        let registers = [
+            (For::Both, "JOYP", JOYPAD_REG),
+            (For::Both, "SB", SERIAL_0_REG),
+            (For::Both, "SC", SERIAL_1_REG),
+            (For::Both, "DIV", DIVIDER_REG),
+            (For::Both, "TIMA", TIMER_COUNT_REG),
+            (For::Both, "TMA", TIMER_MOD_REG),
+            (For::Both, "TAC", TIMER_CTRL_REG),
+            (For::Both, "IE", IE_REG),
+            (For::Both, "IF", IF_REG),
+            (For::Both, "LCDC", LCD_CTRL_REG),
+            (For::Both, "LY", LY_REG),
+            (For::Both, "LYC", LYC_REG),
+            (For::Both, "STAT", LCD_STAT_REG),
+            (For::Both, "SCY", SCROLL_Y_REG),
+            (For::Both, "SCX", SCROLL_X_REG),
+            (For::Only(Mode::Dmg), "BGP", BG_PALETTE_REG),
+            (For::Only(Mode::Dmg), "OBP0", OBJ_PALETTE_0_REG),
+            (For::Only(Mode::Dmg), "OBP1", OBJ_PALETTE_1_REG),
+            (For::Only(Mode::Cgb), "BCPS", BG_COLOR_PALETTE_SPEC_REG),
+            (For::Only(Mode::Cgb), "BCPD", BG_COLOR_PALETTE_DATA_REG),
+            (For::Only(Mode::Cgb), "OCPS", OBJ_COLOR_PALETTE_SPEC_REG),
+            (For::Only(Mode::Cgb), "OCPD", OBJ_COLOR_PALETTE_DATA_REG),
+            (For::Both, "DMA", OAM_DMA_REG),
+            (For::Only(Mode::Cgb), "KEY0", KEY0_REG),
+            (For::Only(Mode::Cgb), "KEY1", KEY1_REG),
+            (For::Only(Mode::Cgb), "VBK", VRAM_BANK_REG),
+            (For::Both, "BANK", BOOT_ROM_CTRL_REG),
+            (For::Only(Mode::Cgb), "HDMA1", VRAM_DMA_SRC_0_REG),
+            (For::Only(Mode::Cgb), "HDMA2", VRAM_DMA_SRC_1_REG),
+            (For::Only(Mode::Cgb), "HDMA3", VRAM_DMA_DEST_0_REG),
+            (For::Only(Mode::Cgb), "HDMA4", VRAM_DMA_DEST_1_REG),
+            (For::Only(Mode::Cgb), "HDMA5", VRAM_DMA_CTRL_REG),
+            (For::Only(Mode::Cgb), "RP", IR_PORT_REG),
+            (For::Only(Mode::Cgb), "OPRI", OBJ_PRIORITY_MODE_REG),
+            (For::Only(Mode::Cgb), "SVBK", WRAM_BANK_REG),
+        ];
+
+        let mut prev = None;
+        for (r#for, name, addr) in registers {
+            match (self.mode, r#for) {
+                (Mode::Dmg, For::Only(Mode::Dmg))
+                | (Mode::Cgb, For::Only(Mode::Cgb))
+                | (_, For::Both) => {
+                    if let Some((prev_name, prev_addr)) = prev.take() {
+                        info!(
+                            "{prev_name:<6}(0x{prev_addr:04X}): 0x{0:02X} 0b{0:08b} | {name:<6}(0x{addr:04X}): 0x{1:02X} 0b{1:08b}",
+                            self.read(prev_addr).unwrap(),
+                            self.read(addr).unwrap(),
+                        );
+                    } else {
+                        prev = Some((name, addr));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some((prev_name, prev_addr)) = prev {
+            info!(
+                "{prev_name:<6}(0x{prev_addr:04X}): 0x{0:02X} 0b{0:08b}",
+                self.read(prev_addr).unwrap(),
+            );
         }
     }
 }

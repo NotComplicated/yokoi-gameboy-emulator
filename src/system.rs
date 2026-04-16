@@ -230,8 +230,20 @@ impl System {
         }
     }
 
+    pub fn step(&mut self) -> Result<(), Error> {
+        let prev_pc = self.reg_set.pc;
+        while self.reg_set.pc == prev_pc {
+            self.tick()?;
+        }
+        Ok(())
+    }
+
     pub fn stack_frames(&self) -> &[StackFrame] {
         &self.stack_frames
+    }
+
+    pub fn log_mem_registers(&self) {
+        self.memory.log_registers();
     }
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {

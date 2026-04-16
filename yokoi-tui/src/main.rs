@@ -1,9 +1,9 @@
+mod debugger;
 mod logger;
 mod tui;
 
 use clap::{Parser, Subcommand};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
-use log::{LevelFilter, error, info};
+use log::{LevelFilter, error};
 use logger::Logger;
 use std::{
     fmt::{Display, Formatter},
@@ -16,7 +16,7 @@ use std::{
 use yokoi::{
     cart::{Cart, ColorSupport, Feature},
     frame::Theme,
-    system::{Input, Mode, Options, System},
+    system::{Mode, Options, System},
 };
 
 /// Interface with the Yokoi emulator backend from the terminal.
@@ -225,50 +225,7 @@ fn run() -> Result<(), Error> {
 
             // if this a lone debugging session (not connected to a server), don't create a TUI
             if debug && log_socket.is_none() {
-                loop {
-                    let input = Input::default();
-                    if let Err(err) = system.next_frame(input) {
-                        if let yokoi::system::Error::Breakpoint(breakpoint) = err {
-                            info!(breakpoint;"");
-                            info!("press enter to resume, 's' for a stack trace, 'q' to quit");
-                            crossterm::terminal::enable_raw_mode()?;
-                            loop {
-                                if let Event::Key(KeyEvent {
-                                    code,
-                                    kind: KeyEventKind::Press,
-                                    ..
-                                }) = crossterm::event::read()?
-                                {
-                                    match code {
-                                        KeyCode::Enter => break,
-                                        KeyCode::Char('q') => {
-                                            return Ok(());
-                                        }
-                                        KeyCode::Char('s') => {
-                                            crossterm::terminal::disable_raw_mode()?;
-                                            for (i, frame) in
-                                                system.stack_frames().iter().enumerate()
-                                            {
-                                                info!(
-                                                    frame = i,
-                                                    bank = frame.bank,
-                                                    address = format!("{:04X}", frame.addr),
-                                                    symbol = frame.latest_symbol
-                                                    ;""
-                                                );
-                                            }
-                                            crossterm::terminal::enable_raw_mode()?;
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            }
-                            crossterm::terminal::disable_raw_mode()?;
-                        } else {
-                            return Err(Error::System(err));
-                        }
-                    }
-                }
+                debugger::run(system)?;
             } else {
                 let term = ratatui::try_init()?;
                 if let Err(err) = tui::run(term, system) {
