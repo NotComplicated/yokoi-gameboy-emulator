@@ -454,6 +454,9 @@ impl Memory {
         let joyp_before = self.joypad_reg;
         self.joypad = joypad;
         self.write(JOYPAD_REG, joyp_before).expect("valid address");
+        if self.read(JOYPAD_REG).unwrap() != 0xff {
+            info!("joyp_reg: {:b}", self.read(JOYPAD_REG).unwrap());
+        }
         if [0b00000001, 0b00000010, 0b00000100, 0b00001000]
             .iter()
             .any(|b| joyp_before & b != 0 && self.joypad_reg & b == 0)
@@ -701,8 +704,8 @@ impl Memory {
 
             IE_REG => Ok(as_slice(&self.ie)),
 
-            //TODO _ => return Ok(&[0xFF]),
-            _ => Err(Error::OutOfBounds(addr)),
+            _ => return Ok(&[0xFF]),
+            //TODO _ => Err(Error::OutOfBounds(addr)),
         }
     }
 
@@ -1061,8 +1064,8 @@ impl Memory {
 
             IE_REG => as_slice(&mut self.ie),
 
-            //TODO _ => return Ok(()),
-            _ => return Err(Error::OutOfBounds(addr)),
+            _ => return Ok(()),
+            //TODO _ => return Err(Error::OutOfBounds(addr)),
         };
 
         if slice.len() < data.len() {
