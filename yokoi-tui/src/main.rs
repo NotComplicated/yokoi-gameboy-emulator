@@ -145,7 +145,7 @@ fn run() -> Result<(), Error> {
                     .args(
                         [
                             "--font-size=5",
-                            "--window-width=160",
+                            "--window-width=320",
                             "--window-height=144",
                             "-e",
                         ]
@@ -200,7 +200,7 @@ fn run() -> Result<(), Error> {
             let boot_rom_data = std::fs::read(&boot)?;
             let cart_data = std::fs::read(&cart)?;
             let cart = Cart::new(cart_data).map_err(Error::Cart)?;
-            let mut system = System::init_options(
+            let system = System::init_options(
                 boot_rom_data,
                 cart,
                 Mode::Dmg,

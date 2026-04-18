@@ -56,18 +56,16 @@ pub struct GameScreen {
 }
 
 impl Widget for &GameScreen {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         (&self.block).render(area, buf);
         let area = self.block.inner(area);
         let rows = (0..).take_while(|&y| y < area.height).zip(&*self.frame.0);
         for (y, row) in rows {
-            let pixels = (0..).take_while(|&x| x < area.width).zip(row);
+            let pixels = (0..).take_while(|&x| x < area.width / 2).zip(row);
             for (x, pixel) in pixels {
                 let Pixel(r, g, b) = pixel.get();
-                buf.cell_mut((area.x + x, area.y + y)).unwrap().bg = Color::Rgb(r, g, b);
+                buf.cell_mut((area.x + x * 2, area.y + y)).unwrap().bg = Color::Rgb(r, g, b);
+                buf.cell_mut((area.x + x * 2 + 1, area.y + y)).unwrap().bg = Color::Rgb(r, g, b);
             }
         }
     }
