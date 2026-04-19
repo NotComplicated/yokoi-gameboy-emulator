@@ -60,7 +60,7 @@ enum State {
     Drawing {
         oam: OamBuf,
         fifo: Fifo,
-        x: u8,
+        px: u8,
         in_window: bool,
         fetcher: Fetcher,
         discard: u8,
@@ -99,30 +99,30 @@ struct Object {
 #[derive(Serialize, Deserialize, Debug)]
 enum Fetcher {
     Bg {
-        x: u8,
+        tile_x: u8,
         progress: u8,
         cached: Option<[Pixel; 8]>,
         obj_queued: Option<usize>,
     },
     Window {
-        x: u8,
+        tile_x: u8,
         progress: u8,
         cached: Option<[Pixel; 8]>,
         obj_queued: Option<usize>,
     },
     Object {
-        x: u8,
+        tile_x: u8,
         progress: u8,
         index: usize,
     },
 }
 
 impl Fetcher {
-    fn get_x(&self) -> u8 {
+    fn tile_x(&self) -> u8 {
         match self {
-            Fetcher::Bg { x, .. } => *x,
-            Fetcher::Window { x, .. } => *x,
-            Fetcher::Object { x, .. } => *x,
+            Fetcher::Bg { tile_x, .. } => *tile_x,
+            Fetcher::Window { tile_x, .. } => *tile_x,
+            Fetcher::Object { tile_x, .. } => *tile_x,
         }
     }
 }
@@ -301,10 +301,10 @@ impl Ppu {
                 self.state = State::Drawing {
                     oam: *oam,
                     fifo: Fifo::new(),
-                    x: 0,
+                    px: 0,
                     in_window: false,
                     fetcher: Fetcher::Bg {
-                        x: 0,
+                        tile_x: 0,
                         progress: FETCH_STEPS,
                         cached: None,
                         obj_queued: None,
@@ -320,7 +320,7 @@ impl Ppu {
             State::Drawing {
                 oam,
                 fifo,
-                x,
+                px,
                 in_window,
                 fetcher,
                 discard,
@@ -336,22 +336,22 @@ impl Ppu {
                 };
 
                 match fetcher {
-                    Fetcher::Bg {
-                        x,
+                    &mut Fetcher::Bg {
+                        tile_x,
                         cached: Some(pixels),
                         obj_queued,
                         ..
                     } => {
-                        if fifo.push_8(*pixels).is_ok() {
+                        if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    x: *x,
+                                    tile_x,
                                     progress: FETCH_STEPS,
-                                    index: *index,
+                                    index,
                                 }
                             } else {
                                 Fetcher::Bg {
-                                    x: *x + 1,
+                                    tile_x: tile_x + 1,
                                     progress: FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
@@ -359,22 +359,22 @@ impl Ppu {
                             };
                         }
                     }
-                    Fetcher::Window {
-                        x,
+                    &mut Fetcher::Window {
+                        tile_x,
                         cached: Some(pixels),
                         obj_queued,
                         ..
                     } => {
-                        if fifo.push_8(*pixels).is_ok() {
+                        if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    x: *x,
+                                    tile_x,
                                     progress: FETCH_STEPS,
-                                    index: *index,
+                                    index,
                                 }
                             } else {
                                 Fetcher::Window {
-                                    x: *x + 1,
+                                    tile_x: tile_x + 1,
                                     progress: FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
@@ -382,15 +382,15 @@ impl Ppu {
                             };
                         }
                     }
-                    Fetcher::Bg {
-                        x,
+                    &mut Fetcher::Bg {
+                        tile_x,
                         progress: 0,
                         obj_queued,
                         ..
                     } => {
                         //TODO CGB reads BG tilemap attrs
                         let row = (scroll_y + self.ly) as u16 >> 3;
-                        let col = ((scroll_x >> 3) + *x) as u16;
+                        let col = ((scroll_x >> 3) + tile_x) as u16;
                         let bg_tile_addr = self.bg_map_addr + (row << 5) + col;
                         let bg_tile = memory.read_ppu(bg_tile_addr)?;
                         let ysub = (scroll_y + self.ly) as u16 % 8;
@@ -408,13 +408,13 @@ impl Ppu {
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    x: *x,
+                                    tile_x,
                                     progress: FETCH_STEPS,
-                                    index: *index,
+                                    index,
                                 }
                             } else {
                                 Fetcher::Bg {
-                                    x: x_tile_last.min(*x + 1),
+                                    tile_x: x_tile_last.min(tile_x + 1),
                                     progress: FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
@@ -422,21 +422,22 @@ impl Ppu {
                             };
                         } else {
                             *fetcher = Fetcher::Bg {
-                                x: *x,
+                                tile_x,
                                 progress: 0,
                                 cached: Some(pixels),
                                 obj_queued: None,
                             };
                         }
                     }
-                    Fetcher::Window {
-                        x,
+                    &mut Fetcher::Window {
+                        tile_x,
                         progress: 0,
                         obj_queued,
                         ..
                     } => {
                         //TODO CGB reads window tilemap attrs
-                        let w_tile_addr = self.w_map_addr + 32 * self.window_counter + *x as u16;
+                        let w_tile_addr =
+                            self.w_map_addr + 32 * self.window_counter + tile_x as u16;
                         let w_tile = memory.read_ppu(w_tile_addr)?;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (w_tile as u16)
@@ -452,13 +453,13 @@ impl Ppu {
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    x: *x,
+                                    tile_x,
                                     progress: FETCH_STEPS,
-                                    index: *index,
+                                    index,
                                 }
                             } else {
                                 Fetcher::Window {
-                                    x: x_tile_last.min(*x + 1),
+                                    tile_x: x_tile_last.min(tile_x + 1),
                                     progress: FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
@@ -466,19 +467,19 @@ impl Ppu {
                             };
                         } else {
                             *fetcher = Fetcher::Window {
-                                x: *x,
+                                tile_x,
                                 progress: 0,
                                 cached: Some(pixels),
                                 obj_queued: None,
                             };
                         }
                     }
-                    Fetcher::Object {
-                        x,
+                    &mut Fetcher::Object {
                         progress: 0,
                         index,
+                        tile_x,
                     } => {
-                        let obj = oam.buffer[*index];
+                        let obj = oam.buffer[index];
                         if self.mode == Mode::Cgb && obj.bank == 1 {
                             todo!("read tile from cgb bank 1")
                         }
@@ -525,14 +526,14 @@ impl Ppu {
 
                         if *in_window {
                             *fetcher = Fetcher::Window {
-                                x: *x,
+                                tile_x,
                                 progress: FETCH_STEPS,
                                 cached: None,
                                 obj_queued: None,
                             };
                         } else {
                             *fetcher = Fetcher::Bg {
-                                x: *x,
+                                tile_x,
                                 progress: FETCH_STEPS,
                                 cached: None,
                                 obj_queued: None,
@@ -612,9 +613,9 @@ impl Ppu {
                     }
                 };
                 if let Some(pixel) = frame_pixel {
-                    self.frame.0[self.ly as usize][*x as usize].set(pixel);
-                    *x += 1;
-                    if *x == X_END {
+                    self.frame.0[self.ly as usize][*px as usize].set(pixel);
+                    *px += 1;
+                    if *px == X_END {
                         if *in_window {
                             self.window_counter += 1;
                         }
@@ -624,10 +625,10 @@ impl Ppu {
                         if self.window_enabled
                             && self.window_latched
                             && !*in_window
-                            && memory.read(mem::WINDOW_X_REG)? == *x + 7
+                            && memory.read(mem::WINDOW_X_REG)? == *px + 7
                         {
                             *fetcher = Fetcher::Window {
-                                x: 0,
+                                tile_x: 0,
                                 progress: FETCH_STEPS,
                                 cached: None,
                                 obj_queued: None,
@@ -636,10 +637,10 @@ impl Ppu {
                         }
                         if self.obj_enabled {
                             for i in 0..oam.len {
-                                if *x + scroll_x == oam.buffer[i].x.saturating_sub(8) {
+                                if *px + scroll_x == oam.buffer[i].x.saturating_sub(8) {
                                     if fifo.len >= 8 {
                                         *fetcher = Fetcher::Object {
-                                            x: fetcher.get_x(),
+                                            tile_x: fetcher.tile_x(),
                                             progress: FETCH_STEPS,
                                             index: i,
                                         };
@@ -779,12 +780,14 @@ impl Ppu {
             }
             State::Drawing {
                 oam,
-                x,
+                px,
                 in_window,
                 discard,
                 ..
             } => {
-                info!("state: drawing, x: {x}, in_window: {in_window}, discard: {discard}");
+                info!(
+                    "state: drawing, nth pixel: {px}, in_window: {in_window}, discard: {discard}"
+                );
                 Some(oam)
             }
         };
