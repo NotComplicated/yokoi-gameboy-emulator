@@ -1,6 +1,5 @@
 use crate::Error;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use log::debug;
 use ratatui::{
     DefaultTerminal,
     prelude::*,
@@ -40,7 +39,7 @@ pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
                     },
                     _ => {}
                 }
-                debug!(joypad:? = input.joypad;"");
+                log::debug!(joypad:? = input.joypad;"");
             }
             now = Instant::now();
         }

@@ -1,7 +1,5 @@
-use bmp::{Image, Pixel};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use image::RgbImage;
-use log::info;
 use yokoi::system::Input;
 
 use crate::Error;
@@ -33,8 +31,8 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                 latest_frame = Some(frame.clone());
             }
             Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
-                info!(breakpoint;"");
-                info!("press 'h' for help, 'q' to quit");
+                log::info!(breakpoint;"");
+                log::info!("press 'h' for help, 'q' to quit");
                 loop {
                     crossterm::terminal::enable_raw_mode()?;
                     if let Event::Key(KeyEvent {
@@ -47,34 +45,34 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                         match key {
                             'c' => break,
                             'd' => {
-                                let image_buf =
-                                    RgbImage::from_fn(width.into(), height.into(), |x, y| {
-                                        latest_frame
-                                            .as_ref()
-                                            .and_then(|frame| frame.0.get(y as usize))
-                                            .and_then(|row| row.get(x as usize))
-                                            .map(|cell| cell.get())
-                                            .map(|yokoi::frame::Pixel(r, g, b)| [r, g, b])
-                                            .unwrap_or([0, 0, 0])
-                                            .into()
-                                    });
+                                let image_buf = RgbImage::from_fn(160, 144, |x, y| {
+                                    latest_frame
+                                        .as_ref()
+                                        .and_then(|frame| frame.0.get(y as usize))
+                                        .and_then(|row| row.get(x as usize))
+                                        .map(|cell| cell.get())
+                                        .map(|yokoi::frame::Pixel(r, g, b)| [r, g, b])
+                                        .unwrap_or([0, 0, 0])
+                                        .into()
+                                });
+                                image_buf.save("frame.bmp").map_err(Error::Image)?;
                                 viuer::print(&image_buf.into(), &viuer_config)
-                                    .map_err(Error::Image)?;
+                                    .map_err(Error::Viuer)?;
                             }
-                            'h' => info!("{HELP_TEXT}"),
+                            'h' => log::info!("{HELP_TEXT}"),
                             'm' => system.log_mem_registers(),
                             'o' => system.log_oam(),
                             'q' => return Ok(()),
                             's' => match system.step() {
                                 Ok(()) => {}
                                 Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
-                                    info!(breakpoint;"")
+                                    log::info!(breakpoint;"")
                                 }
                                 Err(err) => return Err(Error::System(err)),
                             },
                             't' => {
                                 for (i, frame) in system.stack_frames().iter().enumerate() {
-                                    info!(
+                                    log::info!(
                                         frame = i,
                                         bank = frame.bank,
                                         address = format!("{:04X}", frame.addr),
@@ -88,10 +86,11 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                 let tiles = system.vram_tiles();
                                 let cols = 24;
                                 let rows = tiles.len() as u32 / cols;
-                                let mut bmp = Image::new(cols * 10, rows * 10);
-                                for (x, y) in bmp.coordinates() {
-                                    bmp.set_pixel(x, y, bmp::consts::SKYBLUE); // background
-                                }
+                                let mut image_buf = RgbImage::from_pixel(
+                                    cols * 10,
+                                    rows * 10,
+                                    [135, 206, 235].into(), //sky-blue background
+                                );
                                 for row in 0..rows {
                                     for col in 0..cols {
                                         let tile = tiles[(row * cols + col) as usize];
@@ -101,7 +100,8 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                                 let lower = (lsb >> (7 - dx)) & 1;
                                                 let upper = (msb >> (7 - dx)) & 1;
                                                 let c = 255 - 85 * (upper * 2 + lower);
-                                                bmp.set_pixel(x + dx, y + dy, Pixel::new(c, c, c));
+                                                *image_buf.get_pixel_mut(x + dx, y + dy) =
+                                                    [c; 3].into();
                                             }
                                         }
                                     }
@@ -113,10 +113,13 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                         .expect("epoch < now")
                                         .as_millis()
                                 );
-                                bmp.save(&path)?;
-                                info!("saved tiles to {}", std::fs::canonicalize(&path)?.display());
-                                viuer::print_from_file(&path, &viuer_config)
-                                    .map_err(Error::Image)?;
+                                image_buf.save(&path).map_err(Error::Image)?;
+                                log::info!(
+                                    "saved tiles to {}",
+                                    std::fs::canonicalize(&path)?.display()
+                                );
+                                viuer::print(&image_buf.into(), &viuer_config)
+                                    .map_err(Error::Viuer)?;
                             }
                             _ => {}
                         }

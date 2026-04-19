@@ -1,9 +1,3 @@
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    io::{Read, Write},
-};
-
 use crate::{
     audio::Apu,
     cart::Cart,
@@ -14,8 +8,12 @@ use crate::{
     render::{self, Ppu},
     util::{self, Hex},
 };
-use log::{debug, info, trace};
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    io::{Read, Write},
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct System {
@@ -161,7 +159,7 @@ impl System {
             .map_err(Error::Symbol)?;
 
         if options.skip_boot {
-            info!(options:?; "system initialized");
+            log::info!(options:?; "system initialized");
             let mut system = Self {
                 options,
                 cart_hash,
@@ -176,7 +174,7 @@ impl System {
             let memory = Memory::init(boot_rom, cart, mode);
             let (current_op, next_pc) = memory.read_op(0)?;
             let op_duration = current_op.properties().duration;
-            info!(options:?; "system initialized");
+            log::info!(options:?; "system initialized");
             Ok(Self {
                 options,
                 reg_set: RegisterSet {
@@ -209,7 +207,7 @@ impl System {
         }
         system.memory.set_cart(cart);
         system.ppu.set_theme(options.theme);
-        info!(options:?; "system loaded from save state");
+        log::info!(options:?; "system loaded from save state");
         system.options = options;
         Ok(system)
     }
@@ -220,11 +218,11 @@ impl System {
             && self.memory.read(mem::BOOT_ROM_CTRL_REG)? != 0
         {
             rmp_serde::encode::write(&mut writer, self).map_err(Error::Save)?;
-            info!("saved state");
+            log::info!("saved state");
         }
         loop {
             if let Some(frame) = self.tick()? {
-                debug!("new frame");
+                log::debug!("new frame");
                 break Ok(frame);
             }
         }
@@ -404,7 +402,7 @@ impl System {
             self.stack_frames.pop();
         }
 
-        trace!(pc:? = Hex(self.reg_set.next_pc); "return");
+        log::trace!(pc:? = Hex(self.reg_set.next_pc); "return");
         Ok(())
     }
 
@@ -424,7 +422,7 @@ impl System {
             });
         }
 
-        trace!(pc:? = Hex(self.reg_set.next_pc); "call");
+        log::trace!(pc:? = Hex(self.reg_set.next_pc); "call");
         Ok(())
     }
 
@@ -433,7 +431,7 @@ impl System {
             && let Some(bank) = self.memory.bank(self.reg_set.pc)
             && let Some(Symbol { name, r#break }) = map.get(&(bank, self.reg_set.pc))
         {
-            trace!(symbol = name;"");
+            log::trace!(symbol = name;"");
             self.breaking = r#break.then(|| name.clone());
             if let Some(StackFrame { latest_symbol, .. }) = self.stack_frames.last_mut() {
                 if let Some(prev_name) = latest_symbol {
@@ -446,7 +444,7 @@ impl System {
         if let Some(StackFrame { addr, .. }) = self.stack_frames.last_mut() {
             *addr = self.reg_set.pc;
         }
-        trace!(op:? = Hex(self.current_op), registers:? = self.reg_set;"");
+        log::trace!(op:? = Hex(self.current_op), registers:? = self.reg_set;"");
 
         match self.current_op {
             Op::Nop => {}

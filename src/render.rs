@@ -3,7 +3,6 @@ use crate::{
     mem::{self, Memory},
     system::Mode,
 };
-use log::info;
 use serde::{Deserialize, Serialize};
 
 const X_END: u8 = 160;
@@ -259,9 +258,9 @@ impl Ppu {
                         memory.set_lock(mem::Lock::Oam);
 
                         for &[y, x, tile, flags] in memory.oam().as_chunks::<4>().0 {
-                            if (y.saturating_sub(16)..(y + self.obj_height).saturating_sub(16))
-                                .contains(&self.ly)
-                            {
+                            let y_lower = y.saturating_sub(16) as u16;
+                            let y_upper = y_lower + self.obj_height as u16;
+                            if (y_lower..y_upper).contains(&(self.ly.into())) {
                                 // This object is within the current scanline, add to OAM buffer
                                 oam.buffer[oam.len] = Object {
                                     y,
@@ -389,18 +388,18 @@ impl Ppu {
                         ..
                     } => {
                         //TODO CGB reads BG tilemap attrs
-                        let row = (scroll_y + self.ly) as u16 >> 3;
-                        let col = ((scroll_x >> 3) + tile_x) as u16;
+                        let y = scroll_y.wrapping_add(self.ly);
+                        let row = (y >> 3) as u16;
+                        let col = ((scroll_x >> 3) + tile_x) as u16 % 32;
                         let bg_tile_addr = self.bg_map_addr + (row << 5) + col;
                         let bg_tile = memory.read_ppu(bg_tile_addr)?;
-                        let ysub = (scroll_y + self.ly) as u16 % 8;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (bg_tile as u16)
                         } else if bg_tile > 127 {
                             DATA_1_START + 16 * ((bg_tile - 127) as u16)
                         } else {
                             DATA_2_START + 16 * (bg_tile as u16)
-                        } + 2 * ysub;
+                        } + 2 * (y as u16 % 8);
                         let pixels = get_pixels(
                             memory.read_ppu(data_addr)?,
                             memory.read_ppu(data_addr + 1)?,
@@ -480,6 +479,7 @@ impl Ppu {
                         tile_x,
                     } => {
                         let obj = oam.buffer[index];
+                        log::trace!(obj:?; "drawing object");
                         if self.mode == Mode::Cgb && obj.bank == 1 {
                             todo!("read tile from cgb bank 1")
                         }
@@ -490,10 +490,13 @@ impl Ppu {
                             } else {
                                 (self.ly as i16) - (obj.y as i16) + 16
                             };
-                            let data_addr = DATA_0_START
-                                + 16 * ((obj.tile % if self.obj_height == 8 { 1 } else { 2 })
-                                    as u16)
-                                + 2 * (data_addr_offset as u16);
+                            let tile = if self.obj_height == 8 {
+                                obj.tile
+                            } else {
+                                obj.tile & 0b11111110
+                            } as u16;
+                            let data_addr =
+                                DATA_0_START + 16 * tile + 2 * (data_addr_offset as u16);
                             let mut pixels = get_pixels(
                                 memory.read_ppu(data_addr)?,
                                 memory.read_ppu(data_addr + 1)?,
@@ -510,6 +513,7 @@ impl Ppu {
                             pixels
                         };
 
+                        //TODO blending is not working!
                         for (i, &pixel) in pixels.iter().enumerate() {
                             let fifo_pixel = &mut fifo.buffer[(fifo.front + i) % fifo.buffer.len()];
                             // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
@@ -612,6 +616,7 @@ impl Ppu {
                         }
                     }
                 };
+
                 if let Some(pixel) = frame_pixel {
                     self.frame.0[self.ly as usize][*px as usize].set(pixel);
                     *px += 1;
@@ -637,7 +642,7 @@ impl Ppu {
                         }
                         if self.obj_enabled {
                             for i in 0..oam.len {
-                                if *px + scroll_x == oam.buffer[i].x.saturating_sub(8) {
+                                if px.wrapping_add(scroll_x) == oam.buffer[i].x.saturating_sub(8) {
                                     if fifo.len >= 8 {
                                         *fetcher = Fetcher::Object {
                                             tile_x: fetcher.tile_x(),
@@ -752,30 +757,30 @@ impl Ppu {
             ..
         } = self;
 
-        info!("ly: {ly}, dot: {dot}, enabled: {enabled}, window_enabled: {window_enabled}");
-        info!(
+        log::info!("ly: {ly}, dot: {dot}, enabled: {enabled}, window_enabled: {window_enabled}");
+        log::info!(
             "window_latched: {window_latched}, window_counter: {window_counter}, obj_enabled: {obj_enabled}"
         );
-        info!(
+        log::info!(
             "bg_w_priority: {bg_w_priority}, w_map_addr: {w_map_addr:04X}, bg_map_addr: {bg_map_addr:04X}"
         );
-        info!("bg_w_data_addr: {bg_w_data_addr:04X}, obj_height: {obj_height}");
+        log::info!("bg_w_data_addr: {bg_w_data_addr:04X}, obj_height: {obj_height}");
 
         let oam = match state {
             State::Hblank => {
-                info!("state: H-blank");
+                log::info!("state: H-blank");
                 None
             }
             State::Vblank => {
-                info!("state: V-blank");
+                log::info!("state: V-blank");
                 None
             }
             State::OamScan { oam } => {
-                info!("state: OAM scan");
+                log::info!("state: OAM scan");
                 Some(oam)
             }
             State::FirstFetch { oam, progress } => {
-                info!("state: first fetch, progress: {progress}");
+                log::info!("state: first fetch, progress: {progress}");
                 Some(oam)
             }
             State::Drawing {
@@ -785,7 +790,7 @@ impl Ppu {
                 discard,
                 ..
             } => {
-                info!(
+                log::info!(
                     "state: drawing, nth pixel: {px}, in_window: {in_window}, discard: {discard}"
                 );
                 Some(oam)
@@ -806,8 +811,8 @@ impl Ppu {
                 },
             ) in buffer[..*len].iter().enumerate()
             {
-                info!("obj[{i}] - y: {y}, x: {x}, tile: {tile}, priority: {priority}");
-                info!(
+                log::info!("obj[{i}] - y: {y}, x: {x}, tile: {tile}, priority: {priority}");
+                log::info!(
                     "           y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
                 );
             }

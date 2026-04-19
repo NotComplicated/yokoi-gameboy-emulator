@@ -6,7 +6,6 @@ use crate::{
     timer::Timer,
     util::Hex,
 };
-use log::{info, trace};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
 
@@ -455,7 +454,7 @@ impl Memory {
         self.joypad = joypad;
         self.write(JOYPAD_REG, joyp_before).expect("valid address");
         if self.read(JOYPAD_REG).unwrap() != 0xff {
-            info!("joyp_reg: {:b}", self.read(JOYPAD_REG).unwrap());
+            log::info!("joyp_reg: {:b}", self.read(JOYPAD_REG).unwrap());
         }
         if [0b00000001, 0b00000010, 0b00000100, 0b00001000]
             .iter()
@@ -722,7 +721,7 @@ impl Memory {
     }
 
     fn write_slice_inner(&mut self, addr: u16, data: &[u8], ppu: bool) -> Result<(), Error> {
-        trace!(addr:? = Hex(addr), data:? = Hex(data); "mem write");
+        log::trace!(addr:? = Hex(addr), data:? = Hex(data); "mem write");
         fn as_slice(byte: &mut u8) -> &mut [u8] {
             std::slice::from_mut(byte)
         }
@@ -1128,7 +1127,7 @@ impl Memory {
                 | (Mode::Cgb, For::Only(Mode::Cgb))
                 | (_, For::Both) => {
                     if let Some((prev_name, prev_addr)) = prev.take() {
-                        info!(
+                        log::info!(
                             "{prev_name:<6}(0x{prev_addr:04X}): 0x{0:02X} 0b{0:08b} | {name:<6}(0x{addr:04X}): 0x{1:02X} 0b{1:08b}",
                             self.read(prev_addr).unwrap(),
                             self.read(addr).unwrap(),
@@ -1141,7 +1140,7 @@ impl Memory {
             }
         }
         if let Some((prev_name, prev_addr)) = prev {
-            info!(
+            log::info!(
                 "{prev_name:<6}(0x{prev_addr:04X}): 0x{0:02X} 0b{0:08b}",
                 self.read(prev_addr).unwrap(),
             );
@@ -1150,7 +1149,7 @@ impl Memory {
 
     pub fn log_oam(&self) {
         for (i, &[y, x, tile, flags]) in self.oam.as_chunks::<4>().0.iter().enumerate() {
-            info!("oam[{i:02}] - y: {y}, x: {x}, tile: {tile}");
+            log::info!("oam[{i:02}] - y: {y}, x: {x}, tile: {tile}");
             let priority = flags & 0b10000000 != 0;
             let y_flip = flags & 0b01000000 != 0;
             let x_flip = flags & 0b00100000 != 0;
@@ -1160,7 +1159,7 @@ impl Memory {
                 flags & 0b00010000 >> 4
             };
             let bank = flags & 0b00001000 >> 3;
-            info!(
+            log::info!(
                 "        - priority: {priority}, y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
             );
         }

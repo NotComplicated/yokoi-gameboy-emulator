@@ -3,7 +3,7 @@ mod logger;
 mod tui;
 
 use clap::{Parser, Subcommand};
-use log::{LevelFilter, error};
+use log::LevelFilter;
 use logger::Logger;
 use std::{
     fmt::{Display, Formatter},
@@ -96,7 +96,8 @@ pub enum Error {
     Io(std::io::Error),
     System(yokoi::system::Error),
     Cart(yokoi::cart::Error),
-    Image(viuer::ViuError),
+    Image(image::ImageError),
+    Viuer(viuer::ViuError),
 }
 
 impl Display for Error {
@@ -111,6 +112,7 @@ impl Display for Error {
                 writeln!(f, "Reached breakpoint: {breakpoint}")
             }
             Self::Image(err) => writeln!(f, "Error while rendering image: {err}"),
+            Self::Viuer(err) => writeln!(f, "Error while rendering image: {err}"),
             Self::System(err) => writeln!(f, "Internal system error: {err:?}"),
             Self::Cart(yokoi::cart::Error(err)) => writeln!(f, "Error while parsing cart: {err}"),
         }
@@ -231,7 +233,7 @@ fn run() -> Result<(), Error> {
             } else {
                 let term = ratatui::try_init()?;
                 if let Err(err) = tui::run(term, system) {
-                    error!("{err}");
+                    log::error!("{err}");
                 }
                 ratatui::restore();
             }
