@@ -1148,6 +1148,24 @@ impl Memory {
         }
     }
 
+    pub fn log_oam(&self) {
+        for (i, &[y, x, tile, flags]) in self.oam.as_chunks::<4>().0.iter().enumerate() {
+            info!("oam[{i:02}] - y: {y}, x: {x}, tile: {tile}");
+            let priority = flags & 0b10000000 != 0;
+            let y_flip = flags & 0b01000000 != 0;
+            let x_flip = flags & 0b00100000 != 0;
+            let palette = if self.mode == Mode::Cgb {
+                flags & 0b00000111
+            } else {
+                flags & 0b00010000 >> 4
+            };
+            let bank = flags & 0b00001000 >> 3;
+            info!(
+                "        - priority: {priority}, y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
+            );
+        }
+    }
+
     pub fn tiles(&self) -> [Tile; TILES_LEN] {
         std::array::from_fn(|i| {
             let offset = i * std::mem::size_of::<Tile>();

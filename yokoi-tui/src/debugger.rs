@@ -9,7 +9,8 @@ use crate::Error;
 const HELP_TEXT: &str = "q - quit
 c - continue running the emulator
 d - display the current frame
-r - show main memory registers
+m - show main memory registers
+o - show OAM data
 s - step over to the next instruction
 t - show a stack trace
 u - show PPU state
@@ -61,8 +62,9 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                     .map_err(Error::Image)?;
                             }
                             'h' => info!("{HELP_TEXT}"),
+                            'm' => system.log_mem_registers(),
+                            'o' => system.log_oam(),
                             'q' => return Ok(()),
-                            'r' => system.log_mem_registers(),
                             's' => match system.step() {
                                 Ok(()) => {}
                                 Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
