@@ -96,6 +96,7 @@ pub enum Error {
     Io(std::io::Error),
     System(yokoi::system::Error),
     Cart(yokoi::cart::Error),
+    Image(viuer::ViuError),
 }
 
 impl Display for Error {
@@ -109,6 +110,7 @@ impl Display for Error {
             Self::System(yokoi::system::Error::Breakpoint(breakpoint)) => {
                 writeln!(f, "Reached breakpoint: {breakpoint}")
             }
+            Self::Image(err) => writeln!(f, "Error while rendering image: {err}"),
             Self::System(err) => writeln!(f, "Internal system error: {err:?}"),
             Self::Cart(yokoi::cart::Error(err)) => writeln!(f, "Error while parsing cart: {err}"),
         }

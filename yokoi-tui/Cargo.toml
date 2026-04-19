@@ -7,6 +7,8 @@ edition = "2024"
 bmp = "0.5.0"
 clap = { version = "4.5.57", features = ["derive"] }
 crossterm = "0.29.0"
+image = "0.25.10"
 log = { version = "0.4.29", features = ["kv", "kv_std", "std"] }
 ratatui = "0.30.0"
+viuer = { version = "0.11.0", features = ["print-file"] }
 yokoi = { version = "0.1.0", path = ".." }

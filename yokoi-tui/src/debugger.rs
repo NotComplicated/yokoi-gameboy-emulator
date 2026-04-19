@@ -1,7 +1,6 @@
-use std::time::Instant;
-
 use bmp::{Image, Pixel};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use image::RgbImage;
 use log::info;
 use yokoi::system::Input;
 
@@ -9,6 +8,7 @@ use crate::Error;
 
 const HELP_TEXT: &str = "q - quit
 c - continue running the emulator
+d - display the current frame
 r - show main memory registers
 s - step over to the next instruction
 t - show a stack trace
@@ -16,10 +16,22 @@ u - show PPU state
 v - dump VRAM tile data to a bmp file";
 
 pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
+    let mut latest_frame = None;
     loop {
+        let (width, height) = viuer::terminal_size();
+        let viuer_config = viuer::Config {
+            x: width / 2,
+            restore_cursor: true,
+            width: Some(width as u32 / 2),
+            height: Some(height as u32 / 2),
+            ..Default::default()
+        };
         let input = Input::default();
-        if let Err(err) = system.next_frame(input) {
-            if let yokoi::system::Error::Breakpoint(breakpoint) = err {
+        match system.next_frame(input) {
+            Ok(frame) => {
+                latest_frame = Some(frame.clone());
+            }
+            Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
                 info!(breakpoint;"");
                 info!("press 'h' for help, 'q' to quit");
                 loop {
@@ -33,6 +45,21 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                         crossterm::terminal::disable_raw_mode()?;
                         match key {
                             'c' => break,
+                            'd' => {
+                                let image_buf =
+                                    RgbImage::from_fn(width.into(), height.into(), |x, y| {
+                                        latest_frame
+                                            .as_ref()
+                                            .and_then(|frame| frame.0.get(y as usize))
+                                            .and_then(|row| row.get(x as usize))
+                                            .map(|cell| cell.get())
+                                            .map(|yokoi::frame::Pixel(r, g, b)| [r, g, b])
+                                            .unwrap_or([0, 0, 0])
+                                            .into()
+                                    });
+                                viuer::print(&image_buf.into(), &viuer_config)
+                                    .map_err(Error::Image)?;
+                            }
                             'h' => info!("{HELP_TEXT}"),
                             'q' => return Ok(()),
                             'r' => system.log_mem_registers(),
@@ -85,15 +112,16 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                         .as_millis()
                                 );
                                 bmp.save(&path)?;
-                                info!("saved tiles to {}", std::fs::canonicalize(path)?.display());
+                                info!("saved tiles to {}", std::fs::canonicalize(&path)?.display());
+                                viuer::print_from_file(&path, &viuer_config)
+                                    .map_err(Error::Image)?;
                             }
                             _ => {}
                         }
                     }
                 }
-            } else {
-                return Err(Error::System(err));
             }
+            Err(err) => break Err(Error::System(err)),
         }
     }
 }
