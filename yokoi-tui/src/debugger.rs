@@ -12,6 +12,7 @@ c - continue running the emulator
 r - show main memory registers
 s - step over to the next instruction
 t - show a stack trace
+u - show PPU state
 v - dump VRAM tile data to a bmp file";
 
 pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
@@ -53,6 +54,7 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                     );
                                 }
                             }
+                            'u' => system.log_ppu_state(),
                             'v' => {
                                 let tiles = system.vram_tiles();
                                 let cols = 24;

@@ -3,6 +3,7 @@ use crate::{
     mem::{self, Memory},
     system::Mode,
 };
+use log::info;
 use serde::{Deserialize, Serialize};
 
 const X_END: u8 = 160;
@@ -730,5 +731,83 @@ impl Ppu {
             stat & 0b00100000 != 0,
         ];
         Ok(())
+    }
+
+    pub fn log_state(&self) {
+        let Self {
+            state,
+            ly,
+            dot,
+            enabled,
+            window_enabled,
+            window_latched,
+            window_counter,
+            obj_enabled,
+            bg_w_priority,
+            w_map_addr,
+            bg_map_addr,
+            bg_w_data_addr,
+            obj_height,
+            ..
+        } = self;
+
+        info!("ly: {ly}, dot: {dot}, enabled: {enabled}, window_enabled: {window_enabled}");
+        info!(
+            "window_latched: {window_latched}, window_counter: {window_counter}, obj_enabled: {obj_enabled}"
+        );
+        info!(
+            "bg_w_priority: {bg_w_priority}, w_map_addr: {w_map_addr:04X}, bg_map_addr: {bg_map_addr:04X}"
+        );
+        info!("bg_w_data_addr: {bg_w_data_addr:04X}, obj_height: {obj_height}");
+
+        let oam = match state {
+            State::Hblank => {
+                info!("state: H-blank");
+                None
+            }
+            State::Vblank => {
+                info!("state: V-blank");
+                None
+            }
+            State::OamScan { oam } => {
+                info!("state: OAM scan");
+                Some(oam)
+            }
+            State::FirstFetch { oam, progress } => {
+                info!("state: first fetch, progress: {progress}");
+                Some(oam)
+            }
+            State::Drawing {
+                oam,
+                x,
+                in_window,
+                discard,
+                ..
+            } => {
+                info!("state: drawing, x: {x}, in_window: {in_window}, discard: {discard}");
+                Some(oam)
+            }
+        };
+        if let Some(OamBuf { buffer, len }) = oam {
+            for (
+                i,
+                Object {
+                    y,
+                    x,
+                    tile,
+                    priority,
+                    y_flip,
+                    x_flip,
+                    palette,
+                    bank,
+                },
+            ) in buffer[..*len].iter().enumerate()
+            {
+                info!("obj[{i}] - y: {y}, x: {x}, tile: {tile}, priority: {priority}");
+                info!(
+                    "           y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
+                );
+            }
+        }
     }
 }

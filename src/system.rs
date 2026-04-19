@@ -246,6 +246,10 @@ impl System {
         self.memory.log_registers();
     }
 
+    pub fn log_ppu_state(&self) {
+        self.ppu.log_state();
+    }
+
     pub fn vram_tiles(&self) -> [Tile; 384] {
         self.memory.tiles()
     }
