@@ -46,6 +46,10 @@ enum Commands {
         #[arg(long)]
         debug: bool,
 
+        /// Out-of-bounds accesses are not permitted
+        #[arg(long)]
+        strict_mem_access: bool,
+
         /// Log level when debugging. Overriden by RUST_LOG
         #[arg(long, requires = "debug", default_value_t = LevelFilter::Info)]
         log_level: LevelFilter,
@@ -174,6 +178,7 @@ fn run() -> Result<(), Error> {
             classic_theme,
             skip_boot,
             debug,
+            strict_mem_access,
             log_level,
             log_socket,
             short_circuit,
@@ -216,6 +221,7 @@ fn run() -> Result<(), Error> {
                     },
                     short_circuit,
                     debug,
+                    strict_mem_access,
                     skip_boot,
                     symbols: symbols
                         .map(File::open)

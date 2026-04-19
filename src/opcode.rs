@@ -309,6 +309,7 @@ pub enum FlagMode {
     Ignore,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Properties {
     pub duration: Duration,
@@ -326,13 +327,9 @@ impl Op {
         match opcode >> 6 {
             0b00 => match opcode {
                 0b00000000 => Ok((Self::Nop, rest)),
-                0b00010000 => {
-                    if let &[second, ref rest @ ..] = rest {
-                        Ok((Self::Stop(second), rest))
-                    } else {
-                        Err(Error::Exhausted)
-                    }
-                }
+                0b00010000 if let &[second, ref rest @ ..] = rest => Ok((Self::Stop(second), rest)),
+                0b00010000 => Err(Error::Exhausted),
+
                 0b00011000 => {
                     let (e8, rest) = E8::read(rest)?;
                     Ok((Self::JrE8(e8), rest))
@@ -428,32 +425,30 @@ impl Op {
                             let (a16, rest) = A16::read(rest)?;
                             Ok((Self::CallA16(a16), rest))
                         }
-                        0b11001011 => {
-                            if let &[prefixed, ref rest @ ..] = rest {
-                                let r8 = R8::from_210(prefixed);
-                                match prefixed >> 3 {
-                                    0b00000 => Ok((Self::Prefix(Prefixed::Rlc, r8), rest)),
-                                    0b00001 => Ok((Self::Prefix(Prefixed::Rrc, r8), rest)),
-                                    0b00010 => Ok((Self::Prefix(Prefixed::Rl, r8), rest)),
-                                    0b00011 => Ok((Self::Prefix(Prefixed::Rr, r8), rest)),
-                                    0b00100 => Ok((Self::Prefix(Prefixed::Sla, r8), rest)),
-                                    0b00101 => Ok((Self::Prefix(Prefixed::Sra, r8), rest)),
-                                    0b00110 => Ok((Self::Prefix(Prefixed::Swap, r8), rest)),
-                                    0b00111 => Ok((Self::Prefix(Prefixed::Srl, r8), rest)),
-                                    _ => {
-                                        let b3 = B3::from_543(prefixed);
-                                        match prefixed >> 6 {
-                                            0b01 => Ok((Self::Prefix(Prefixed::Bit(b3), r8), rest)),
-                                            0b10 => Ok((Self::Prefix(Prefixed::Res(b3), r8), rest)),
-                                            0b11 => Ok((Self::Prefix(Prefixed::Set(b3), r8), rest)),
-                                            _ => unreachable!(),
-                                        }
+                        0b11001011 if let &[prefixed, ref rest @ ..] = rest => {
+                            let r8 = R8::from_210(prefixed);
+                            match prefixed >> 3 {
+                                0b00000 => Ok((Self::Prefix(Prefixed::Rlc, r8), rest)),
+                                0b00001 => Ok((Self::Prefix(Prefixed::Rrc, r8), rest)),
+                                0b00010 => Ok((Self::Prefix(Prefixed::Rl, r8), rest)),
+                                0b00011 => Ok((Self::Prefix(Prefixed::Rr, r8), rest)),
+                                0b00100 => Ok((Self::Prefix(Prefixed::Sla, r8), rest)),
+                                0b00101 => Ok((Self::Prefix(Prefixed::Sra, r8), rest)),
+                                0b00110 => Ok((Self::Prefix(Prefixed::Swap, r8), rest)),
+                                0b00111 => Ok((Self::Prefix(Prefixed::Srl, r8), rest)),
+                                _ => {
+                                    let b3 = B3::from_543(prefixed);
+                                    match prefixed >> 6 {
+                                        0b01 => Ok((Self::Prefix(Prefixed::Bit(b3), r8), rest)),
+                                        0b10 => Ok((Self::Prefix(Prefixed::Res(b3), r8), rest)),
+                                        0b11 => Ok((Self::Prefix(Prefixed::Set(b3), r8), rest)),
+                                        _ => unreachable!(),
                                     }
                                 }
-                            } else {
-                                Err(Error::Exhausted)
                             }
                         }
+                        0b11001011 => Err(Error::Exhausted),
+
                         0b11100010 => Ok((Self::LdhCA, rest)),
                         0b11100000 => {
                             let (a8, rest) = A8::read(rest)?;

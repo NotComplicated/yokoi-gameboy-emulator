@@ -70,6 +70,7 @@ impl Pixel {
         }
     }
 
+    #[expect(dead_code)]
     pub(crate) fn from_rgb555([lower, upper]: Rgb555) -> Self {
         let r = lower & 0b11111000;
         let g = ((lower & 0b00000111) << 5) | ((upper & 0b11000000) >> 3);

@@ -1,6 +1,9 @@
+mod mbc;
+
 use crate::{
     cart::Cart,
     frame::Rgb555,
+    mem::mbc::{Mbc, Mbc1ExtBank},
     opcode::{self, Op},
     system::{Joypad, Mode},
     timer::Timer,
@@ -86,8 +89,6 @@ const TILES_LEN: usize = (0x9800 - VRAM_START) as usize / std::mem::size_of::<Ti
 
 pub type Tile = [(u8, u8); 8];
 
-type Sram = Box<ByteArray<{ 8 * 1024 }>>;
-
 #[derive(Serialize, Deserialize)]
 pub struct Memory {
     mode: Mode,
@@ -95,6 +96,8 @@ pub struct Memory {
     boot_rom: Vec<u8>,
     #[serde(skip)]
     cart: Cart,
+    #[serde(skip)]
+    strict_mem_access: bool,
     mbc: Mbc,
     lock: Lock,
     #[serde(with = "serde_bytes")]
@@ -133,192 +136,6 @@ pub enum Error {
     Op(opcode::Error),
     OutOfBounds(u16),
     SegFault,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Mbc {
-    None {
-        sram: Sram,
-    },
-    One {
-        rom_bank_reg: u8,
-        rom_bank_reg_mask: u8,
-        sram_enabled: bool,
-        extended_bank: Mbc1ExtBank,
-    },
-    Two {
-        rom_bank_reg: u8,
-        #[serde(with = "serde_bytes")]
-        sram_4bit: [u8; 512],
-        sram_enabled: bool,
-    },
-    Three {
-        rom_bank_reg: u8,
-        sram_bank_or_rtc_reg: u8,
-        sram_and_rtc_enabled: bool,
-        sram: [Sram; 8],
-        latching: bool,
-        rtc: [u8; 5],
-    },
-    Five {
-        rom_bank_reg: u16,
-        sram_enabled: bool,
-        sram_bank_reg: u8,
-        sram: [Sram; 16],
-    },
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Mbc1ExtBank {
-    Ram {
-        advanced: bool,
-        sram_bank_reg: u8,
-        sram: [Sram; 4],
-    },
-    Rom {
-        advanced: bool,
-        rom_bank_upper_reg: u8,
-        sram: Sram,
-    },
-}
-
-impl Mbc {
-    fn from_cart(cart: &Cart) -> Self {
-        for feature in cart.features() {
-            match feature {
-                crate::cart::Feature::Mbc1 => {
-                    let bank_count: u8 = cart
-                        .data()
-                        .len()
-                        .div_ceil(16 * 1024)
-                        .try_into()
-                        .expect("cart isn't too large");
-                    return Self::One {
-                        rom_bank_reg: 0,
-                        rom_bank_reg_mask: bank_count.next_power_of_two() - 1,
-                        sram_enabled: false,
-                        extended_bank: if bank_count > 32 {
-                            Mbc1ExtBank::Rom {
-                                advanced: false,
-                                rom_bank_upper_reg: 0,
-                                sram: Default::default(),
-                            }
-                        } else {
-                            Mbc1ExtBank::Ram {
-                                advanced: false,
-                                sram_bank_reg: 0,
-                                sram: Default::default(),
-                            }
-                        },
-                    };
-                }
-                crate::cart::Feature::Mbc2 => {
-                    return Self::Two {
-                        rom_bank_reg: 0,
-                        sram_4bit: [0; _],
-                        sram_enabled: false,
-                    };
-                }
-                crate::cart::Feature::Mbc3 => {
-                    return Self::Three {
-                        rom_bank_reg: 0,
-                        sram_bank_or_rtc_reg: 0,
-                        sram_and_rtc_enabled: false,
-                        sram: Default::default(),
-                        latching: false,
-                        rtc: [0; _],
-                    };
-                }
-                crate::cart::Feature::Mbc5 => {
-                    return Self::Five {
-                        rom_bank_reg: 1,
-                        sram_enabled: false,
-                        sram_bank_reg: 0,
-                        sram: Default::default(),
-                    };
-                }
-                crate::cart::Feature::Mbc6 | crate::cart::Feature::Mbc7 => {
-                    unimplemented!("very rare cart")
-                }
-                _ => {}
-            }
-        }
-        Self::None {
-            sram: Default::default(),
-        }
-    }
-
-    fn bank_and_cart_addr(&self, addr: u16) -> Option<(u16, usize)> {
-        match addr {
-            ROM_BANK_0_START..ROM_BANK_N_START => {
-                if let Self::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank:
-                        Mbc1ExtBank::Rom {
-                            advanced: true,
-                            rom_bank_upper_reg,
-                            ..
-                        },
-                    ..
-                } = self
-                {
-                    // MBC1 advanced mode on 1MB+ cart, bank # comes from upper/lower regs
-                    let bank_lower = rom_bank_reg & rom_bank_reg_mask;
-                    let bank = (rom_bank_upper_reg << 5) + bank_lower;
-                    let addr = ((bank as usize) << 14) + addr as usize;
-                    Some((bank.into(), addr))
-                } else {
-                    // otherwise, simply read the first ROM bank
-                    Some((0, addr.into()))
-                }
-            }
-
-            ROM_BANK_N_START..VRAM_START => match self {
-                Self::None { .. } => Some((0, addr.into())),
-                Self::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank: Mbc1ExtBank::Ram { .. },
-                    ..
-                } => {
-                    let bank =
-                        if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
-                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Some((bank.into(), addr))
-                }
-                Self::One {
-                    rom_bank_reg,
-                    rom_bank_reg_mask,
-                    extended_bank:
-                        Mbc1ExtBank::Rom {
-                            rom_bank_upper_reg, ..
-                        },
-                    ..
-                } => {
-                    // bank == 0 check must come *before* mask check
-                    let bank_lower =
-                        if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg } & rom_bank_reg_mask;
-                    let bank = (rom_bank_upper_reg << 5) + bank_lower;
-                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Some((bank.into(), addr))
-                }
-                Self::Two { rom_bank_reg, .. } | Self::Three { rom_bank_reg, .. } => {
-                    let bank = if *rom_bank_reg == 0 { 1 } else { *rom_bank_reg };
-                    let addr = ((bank as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Some((bank.into(), addr))
-                }
-                Self::Five { rom_bank_reg, .. } => {
-                    // no bank == 0 check here
-                    let addr =
-                        ((*rom_bank_reg as usize) << 14) + (addr - ROM_BANK_N_START) as usize;
-                    Some(((addr >> 14) as _, addr))
-                }
-            },
-
-            _ => None,
-        }
-    }
 }
 
 #[derive(PartialEq, Copy, Clone, Serialize, Deserialize, Debug)]
@@ -377,13 +194,14 @@ struct Lcd {
 }
 
 impl Memory {
-    pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode) -> Self {
+    pub fn init(boot_rom: Vec<u8>, cart: Cart, mode: Mode, strict_mem_access: bool) -> Self {
         let is_cgb = mode == Mode::Cgb;
         let mbc = Mbc::from_cart(&cart);
         Self {
             mode,
             boot_rom,
             cart,
+            strict_mem_access,
             mbc,
             lock: Lock::Unlocked,
             vram: [0; _],
@@ -703,8 +521,8 @@ impl Memory {
 
             IE_REG => Ok(as_slice(&self.ie)),
 
-            _ => return Ok(&[0xFF]),
-            //TODO _ => Err(Error::OutOfBounds(addr)),
+            _ if self.strict_mem_access => Err(Error::OutOfBounds(addr)),
+            _ => Ok(&[0xFF]),
         }
     }
 
@@ -722,6 +540,10 @@ impl Memory {
 
     fn write_slice_inner(&mut self, addr: u16, data: &[u8], ppu: bool) -> Result<(), Error> {
         log::trace!(addr:? = Hex(addr), data:? = Hex(data); "mem write");
+        if data.is_empty() {
+            return Err(Error::SegFault);
+        }
+
         fn as_slice(byte: &mut u8) -> &mut [u8] {
             std::slice::from_mut(byte)
         }
@@ -896,13 +718,10 @@ impl Memory {
                 return self.write_slice_inner(addr - (ERAM_START - WRAM_BANK_0_START), data, ppu);
             }
 
-            OAM_START..OAM_END => {
-                if self.lock == Lock::Unlocked {
-                    &mut self.oam[(addr - OAM_START).into()..]
-                } else {
-                    return Ok(());
-                }
+            OAM_START..OAM_END if self.lock == Lock::Unlocked => {
+                &mut self.oam[(addr - OAM_START).into()..]
             }
+            OAM_START..OAM_END => return Ok(()),
 
             JOYPAD_REG => {
                 let &[selection] = data else {
@@ -991,13 +810,15 @@ impl Memory {
             }
 
             LCD_CTRL_REG => as_slice(&mut self.lcd.ctrl),
+            LCD_STAT_REG if ppu => as_slice(&mut self.lcd.stat),
             LCD_STAT_REG => {
                 self.lcd.stat = (data[0] & 0b11111100) | (self.lcd.stat & 0b00000011);
                 return Ok(());
             }
             SCROLL_Y_REG => as_slice(&mut self.lcd.scroll_y),
             SCROLL_X_REG => as_slice(&mut self.lcd.scroll_x),
-            LY_REG => as_slice(&mut self.lcd.ly),
+            LY_REG if ppu => as_slice(&mut self.lcd.ly),
+            LY_REG => return Ok(()),
             LYC_REG => as_slice(&mut self.lcd.lyc),
 
             OAM_DMA_REG => {
@@ -1063,8 +884,8 @@ impl Memory {
 
             IE_REG => as_slice(&mut self.ie),
 
+            _ if self.strict_mem_access => return Err(Error::OutOfBounds(addr)),
             _ => return Ok(()),
-            //TODO _ => return Err(Error::OutOfBounds(addr)),
         };
 
         if slice.len() < data.len() {

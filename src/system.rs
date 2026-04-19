@@ -5,7 +5,7 @@ use crate::{
     mem::{self, Memory, Tile},
     opcode::*,
     register::RegisterSet,
-    render::{self, Ppu},
+    render::{self, ppu::Ppu},
     util::{self, Hex},
 };
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,7 @@ pub struct Options {
     pub theme: Theme,
     pub short_circuit: Option<u64>,
     pub debug: bool,
+    pub strict_mem_access: bool,
     pub skip_boot: bool,
     pub symbols: Option<Box<dyn SymbolRead>>,
     pub breakpoints: Vec<String>,
@@ -171,7 +172,7 @@ impl System {
             system.ppu.set_theme(theme);
             Ok(system)
         } else {
-            let memory = Memory::init(boot_rom, cart, mode);
+            let memory = Memory::init(boot_rom, cart, mode, options.strict_mem_access);
             let (current_op, next_pc) = memory.read_op(0)?;
             let op_duration = current_op.properties().duration;
             log::info!(options:?; "system initialized");

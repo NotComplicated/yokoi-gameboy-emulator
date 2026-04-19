@@ -14,7 +14,7 @@ use yokoi::{
 pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
     let mut screen = GameScreen::default();
     let delta_time = Duration::from_millis(10);
-    'frame: loop {
+    'game_loop: loop {
         let mut now = Instant::now();
         let next_frame_at = now + delta_time;
         let mut input = Input::default();
@@ -26,7 +26,7 @@ pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
                         kind: KeyEventKind::Press,
                         ..
                     }) => match code {
-                        KeyCode::Char('q') => break 'frame Ok(()),
+                        KeyCode::Char('q') => break 'game_loop,
                         KeyCode::Char('w') | KeyCode::Up => input.joypad.up = true,
                         KeyCode::Char('s') | KeyCode::Down => input.joypad.down = true,
                         KeyCode::Char('a') | KeyCode::Left => input.joypad.left = true,
@@ -52,6 +52,16 @@ pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
             f.render_widget(&screen, f.area());
         })?;
     }
+    for (i, frame) in system.stack_frames().iter().enumerate() {
+        log::info!(
+            frame = i,
+            bank = frame.bank,
+            address = format!("{:04X}", frame.addr),
+            symbol = frame.latest_symbol
+            ;""
+        );
+    }
+    Ok(())
 }
 
 #[derive(Default)]
