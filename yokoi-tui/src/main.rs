@@ -188,9 +188,7 @@ fn run() -> Result<(), Error> {
             cart,
             ..
         } => {
-            let stream = log_socket
-                .map(|addr| TcpStream::connect(addr))
-                .transpose()?;
+            let stream = log_socket.map(TcpStream::connect).transpose()?;
             if debug {
                 if let Some(stream) = stream {
                     Logger(stream).init();

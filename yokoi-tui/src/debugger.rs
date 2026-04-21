@@ -7,6 +7,7 @@ use crate::Error;
 const HELP_TEXT: &str = "q - quit
 c - continue running the emulator
 d - display the current frame
+l - set log level
 m - show main memory registers
 o - show OAM data
 s - step over to the next instruction
@@ -60,6 +61,21 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                     .map_err(Error::Viuer)?;
                             }
                             'h' => log::info!("{HELP_TEXT}"),
+                            'l' => {
+                                log::info!("new level:");
+                                if let Ok(filter) = std::io::stdin()
+                                    .lines()
+                                    .next()
+                                    .unwrap()?
+                                    .trim()
+                                    .parse::<log::LevelFilter>()
+                                {
+                                    log::set_max_level(filter);
+                                    log::info!("log level set to '{filter}'");
+                                } else {
+                                    log::error!("invalid log level");
+                                }
+                            }
                             'm' => system.log_mem_registers(),
                             'o' => system.log_oam(),
                             'q' => return Ok(()),
@@ -101,7 +117,7 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                                 let upper = (msb >> (7 - dx)) & 1;
                                                 let c = 255 - 85 * (upper * 2 + lower);
                                                 *image_buf.get_pixel_mut(x + dx, y + dy) =
-                                                    [c; 3].into();
+                                                    [c, c, c].into();
                                             }
                                         }
                                     }

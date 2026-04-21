@@ -401,6 +401,7 @@ impl Ppu {
                                     {
                                         *fifo_pixel
                                     }
+                                    _ if pixel.color == 0 => *fifo_pixel,
                                     _ => pixel,
                                 };
                         }
