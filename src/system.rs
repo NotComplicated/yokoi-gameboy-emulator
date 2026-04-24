@@ -249,6 +249,10 @@ impl System {
         self.memory.log_oam();
     }
 
+    pub fn log_bg(&self) {
+        self.memory.log_bg();
+    }
+
     pub fn log_ppu_state(&self) {
         self.ppu.log_state();
     }

@@ -11,6 +11,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteArray;
+use std::fmt::Write;
 
 pub const ROM_BANK_0_START: u16 = 0x0000;
 pub const ROM_BANK_N_START: u16 = 0x4000;
@@ -297,7 +298,7 @@ impl Memory {
 
     pub fn read_op(&self, pc: u16) -> Result<(Op, u16), Error> {
         let mem = self.read_inner(pc, false)?;
-        Op::read(mem)
+        Op::decode(mem)
             .map(|(op, new_mem)| (op, pc + (mem.len() - new_mem.len()) as u16))
             .map_err(Error::Op)
     }
@@ -970,7 +971,12 @@ impl Memory {
 
     pub fn log_oam(&self) {
         for (i, &[y, x, tile, flags]) in self.oam.as_chunks::<4>().0.iter().enumerate() {
-            log::info!("oam[{i:02}] - y: {y}, x: {x}, tile: {tile}");
+            let (row, col) = (tile / 24, tile % 24);
+            log::info!(
+                "oam[{i:02}] - y: {y}, x: {x}, tile: {}{}",
+                char::from_u32((b'A' + row) as _).unwrap(),
+                char::from_u32((b'a' + col) as _).unwrap()
+            );
             let priority = flags & 0b10000000 != 0;
             let y_flip = flags & 0b01000000 != 0;
             let x_flip = flags & 0b00100000 != 0;
@@ -984,6 +990,38 @@ impl Memory {
                 "        - priority: {priority}, y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
             );
         }
+    }
+
+    pub fn log_bg(&self) {
+        let map_addr = if self.lcd.ctrl & 0b00001000 == 0 {
+            0x9800
+        } else {
+            0x9C00
+        };
+        let mut bg_log = String::new();
+        for row in self.vram[map_addr - VRAM_START as usize..]
+            .chunks(32)
+            .take(32)
+        {
+            for &tile_rel in row {
+                let tile_abs = if self.lcd.ctrl & 0b00010000 == 0 {
+                    tile_rel as u16
+                } else if tile_rel > 127 {
+                    0x80 + (tile_rel - 127) as u16
+                } else {
+                    0x100 + tile_rel as u16
+                };
+                let (row, col) = ((tile_abs / 24) as u8, (tile_abs % 24) as u8);
+                _ = write!(
+                    bg_log,
+                    "{}{} ",
+                    char::from_u32((b'A' + row) as _).unwrap(),
+                    char::from_u32((b'a' + col) as _).unwrap()
+                );
+            }
+            _ = writeln!(bg_log);
+        }
+        log::info!("{bg_log}");
     }
 
     pub fn tiles(&self) -> [Tile; TILES_LEN] {

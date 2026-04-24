@@ -1,22 +1,29 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use image::RgbImage;
-use yokoi::system::Input;
+use yokoi::{
+    frame::{Frame, Pixel},
+    system::Input,
+};
 
 use crate::Error;
+
+const TILES_TEMPLATE: &[u8] = include_bytes!("../tiles_template.bmp");
 
 const HELP_TEXT: &str = "q - quit
 c - continue running the emulator
 d - display the current frame
+e - display the current frame with guides
 l - set log level
 m - show main memory registers
 o - show OAM data
+p - show background tile data
 s - step over to the next instruction
 t - show a stack trace
 u - show PPU state
 v - dump VRAM tile data to a bmp file";
 
 pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
-    let mut latest_frame = None;
+    let mut latest_frame: Option<Frame> = None;
     loop {
         let (width, height) = viuer::terminal_size();
         let viuer_config = viuer::Config {
@@ -26,6 +33,36 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
             height: Some(height as u32 / 2),
             ..Default::default()
         };
+
+        let display_frame = |guides: bool| {
+            let mut image_buf = RgbImage::from_fn(160, 144, |x, y| {
+                latest_frame
+                    .as_ref()
+                    .and_then(|frame| frame.0.get(y as usize))
+                    .and_then(|row| row.get(x as usize))
+                    .map(|cell| cell.get())
+                    .map(|Pixel(r, g, b)| [r, g, b])
+                    .unwrap_or([0, 0, 0])
+                    .into()
+            });
+            if guides {
+                for x in (0..image_buf.width()).step_by(8).skip(1) {
+                    for y in (0..image_buf.height()).step_by(8).skip(1) {
+                        let pixel = [135, 206, 235].into();
+                        image_buf.put_pixel(x - 1, y, pixel);
+                        image_buf.put_pixel(x + 1, y, pixel);
+                        image_buf.put_pixel(x, y - 1, pixel);
+                        image_buf.put_pixel(x, y + 1, pixel);
+                        image_buf.put_pixel(x, y, pixel);
+                    }
+                }
+            }
+            image_buf.save("frame.bmp").map_err(Error::Image)?;
+            viuer::print(&image_buf.into(), &viuer_config)
+                .map(|_| ())
+                .map_err(Error::Viuer)
+        };
+
         let input = Input::default();
         match system.next_frame(input) {
             Ok(frame) => {
@@ -45,21 +82,8 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                         crossterm::terminal::disable_raw_mode()?;
                         match key {
                             'c' => break,
-                            'd' => {
-                                let image_buf = RgbImage::from_fn(160, 144, |x, y| {
-                                    latest_frame
-                                        .as_ref()
-                                        .and_then(|frame| frame.0.get(y as usize))
-                                        .and_then(|row| row.get(x as usize))
-                                        .map(|cell| cell.get())
-                                        .map(|yokoi::frame::Pixel(r, g, b)| [r, g, b])
-                                        .unwrap_or([0, 0, 0])
-                                        .into()
-                                });
-                                image_buf.save("frame.bmp").map_err(Error::Image)?;
-                                viuer::print(&image_buf.into(), &viuer_config)
-                                    .map_err(Error::Viuer)?;
-                            }
+                            'd' => display_frame(false)?,
+                            'e' => display_frame(true)?,
                             'h' => log::info!("{HELP_TEXT}"),
                             'l' => {
                                 log::info!("new level:");
@@ -78,6 +102,7 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                             }
                             'm' => system.log_mem_registers(),
                             'o' => system.log_oam(),
+                            'p' => system.log_bg(),
                             'q' => return Ok(()),
                             's' => match system.step() {
                                 Ok(()) => {}
@@ -102,11 +127,10 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                 let tiles = system.vram_tiles();
                                 let cols = 24;
                                 let rows = tiles.len() as u32 / cols;
-                                let mut image_buf = RgbImage::from_pixel(
-                                    cols * 10,
-                                    rows * 10,
-                                    [135, 206, 235].into(), //sky-blue background
-                                );
+                                let mut image_buf: RgbImage =
+                                    image::load_from_memory(TILES_TEMPLATE)
+                                        .map_err(Error::Image)?
+                                        .into();
                                 for row in 0..rows {
                                     for col in 0..cols {
                                         let tile = tiles[(row * cols + col) as usize];
@@ -116,8 +140,11 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                                 let lower = (lsb >> (7 - dx)) & 1;
                                                 let upper = (msb >> (7 - dx)) & 1;
                                                 let c = 255 - 85 * (upper * 2 + lower);
-                                                *image_buf.get_pixel_mut(x + dx, y + dy) =
-                                                    [c, c, c].into();
+                                                image_buf.put_pixel(
+                                                    x + dx + 10,
+                                                    y + dy + 10,
+                                                    [c, c, c].into(),
+                                                );
                                             }
                                         }
                                     }

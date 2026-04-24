@@ -320,7 +320,7 @@ pub struct Properties {
 }
 
 impl Op {
-    pub fn read(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
+    pub fn decode(instructions: &[u8]) -> Result<(Self, &[u8]), Error> {
         let &[opcode, ref rest @ ..] = instructions else {
             return Err(Error::Exhausted);
         };
