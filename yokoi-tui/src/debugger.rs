@@ -17,6 +17,7 @@ l - set log level
 m - show main memory registers
 o - show OAM data
 p - show background tile data
+r - display the full background
 s - step over to the next instruction
 t - show a stack trace
 u - show PPU state
@@ -104,6 +105,29 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                             'o' => system.log_oam(),
                             'p' => system.log_bg(),
                             'q' => return Ok(()),
+                            'r' => {
+                                let background = system.background();
+                                let mut image_buf = RgbImage::new(32 * 8, 32 * 8);
+                                for (y, row) in (0..).step_by(8).zip(background) {
+                                    for (x, tile) in (0..).step_by(8).zip(row) {
+                                        for (&(lsb, msb), dy) in tile.iter().zip(0..) {
+                                            for dx in 0..8 {
+                                                let lower = (lsb >> (7 - dx)) & 1;
+                                                let upper = (msb >> (7 - dx)) & 1;
+                                                let c = 255 - 85 * (upper * 2 + lower);
+                                                image_buf.put_pixel(
+                                                    x + dx,
+                                                    y + dy,
+                                                    [c, c, c].into(),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                image_buf.save("background.bmp").map_err(Error::Image)?;
+                                viuer::print(&image_buf.into(), &viuer_config)
+                                    .map_err(Error::Viuer)?;
+                            }
                             's' => match system.step() {
                                 Ok(()) => {}
                                 Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
@@ -134,15 +158,15 @@ pub fn run(mut system: yokoi::system::System) -> Result<(), Error> {
                                 for row in 0..rows {
                                     for col in 0..cols {
                                         let tile = tiles[(row * cols + col) as usize];
-                                        let (x, y) = (col * 10 + 1, row * 10 + 1);
+                                        let (x, y) = (col * 10 + 11, row * 10 + 11);
                                         for (&(lsb, msb), dy) in tile.iter().zip(0..) {
                                             for dx in 0..8 {
                                                 let lower = (lsb >> (7 - dx)) & 1;
                                                 let upper = (msb >> (7 - dx)) & 1;
                                                 let c = 255 - 85 * (upper * 2 + lower);
                                                 image_buf.put_pixel(
-                                                    x + dx + 10,
-                                                    y + dy + 10,
+                                                    x + dx,
+                                                    y + dy,
                                                     [c, c, c].into(),
                                                 );
                                             }

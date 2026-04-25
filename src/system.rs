@@ -261,6 +261,10 @@ impl System {
         self.memory.tiles()
     }
 
+    pub fn background(&self) -> [[Tile; 32]; 32] {
+        self.memory.background()
+    }
+
     fn tick(&mut self) -> Result<Option<Frame>, Error> {
         match &mut self.options.short_circuit {
             Some(0) => return Err(Error::ShortCircuit),

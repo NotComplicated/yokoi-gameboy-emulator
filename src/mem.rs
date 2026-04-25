@@ -994,15 +994,12 @@ impl Memory {
 
     pub fn log_bg(&self) {
         let map_addr = if self.lcd.ctrl & 0b00001000 == 0 {
-            0x9800
+            0x1800
         } else {
-            0x9C00
+            0x1C00
         };
         let mut bg_log = String::new();
-        for row in self.vram[map_addr - VRAM_START as usize..]
-            .chunks(32)
-            .take(32)
-        {
+        for row in self.vram[map_addr..].chunks(32).take(32) {
             for &tile_rel in row {
                 let tile_abs = if self.lcd.ctrl & 0b00010000 == 0 {
                     tile_rel as u16
@@ -1028,6 +1025,32 @@ impl Memory {
         std::array::from_fn(|i| {
             let offset = i * std::mem::size_of::<Tile>();
             std::array::from_fn(|j| (self.vram[offset + j * 2], self.vram[offset + j * 2 + 1]))
+        })
+    }
+
+    pub fn background(&self) -> [[Tile; 32]; 32] {
+        let map_addr = if self.lcd.ctrl & 0b00001000 == 0 {
+            0x1800
+        } else {
+            0x1C00
+        };
+        std::array::from_fn(|y| {
+            std::array::from_fn(|x| {
+                let tile = self.vram[map_addr + y * 32 + x];
+                let data_addr = if self.lcd.ctrl & 0b00010000 == 0 {
+                    16 * (tile as usize)
+                } else if tile > 127 {
+                    0x800 + 16 * ((tile - 127) as usize)
+                } else {
+                    0x1000 + 16 * (tile as usize)
+                };
+                std::array::from_fn(|row| {
+                    let [hi, lo] = self.vram[data_addr + row * 2..][..2] else {
+                        panic!("out of vram")
+                    };
+                    (hi, lo)
+                })
+            })
         })
     }
 }

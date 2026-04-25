@@ -390,7 +390,6 @@ impl Ppu {
                                 pixels
                             };
 
-                        //TODO blending is not working!
                         for (i, &pixel) in pixels.iter().enumerate() {
                             let fifo_pixel = &mut fifo.buffer[(fifo.front + i) % fifo.buffer.len()];
                             // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
@@ -447,17 +446,13 @@ impl Ppu {
                             },
                             Mode::Dmg,
                         ) => {
-                            if color == 0 {
-                                frame::Pixel::from_2bit(0, self.theme)
+                            let objp = if palette == 0 {
+                                memory.read(mem::OBJ_PALETTE_0_REG)?
                             } else {
-                                let objp = if palette == 0 {
-                                    memory.read(mem::OBJ_PALETTE_0_REG)?
-                                } else {
-                                    memory.read(mem::OBJ_PALETTE_1_REG)?
-                                };
-                                let color = (objp >> (color * 2)) & 0b00000011;
-                                frame::Pixel::from_2bit(color, self.theme)
-                            }
+                                memory.read(mem::OBJ_PALETTE_1_REG)?
+                            };
+                            let color = (objp >> (color * 2)) & 0b00000011;
+                            frame::Pixel::from_2bit(color, self.theme)
                         }
 
                         #[expect(unused)]
