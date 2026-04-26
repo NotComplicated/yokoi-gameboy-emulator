@@ -1,11 +1,11 @@
 use crate::{
+    Mode,
     frame::{self, Frame, Theme},
     mem::{self, Memory},
     render::{
         self, Error, Fifo, OamBuf, Object,
         fetcher::{self, Fetcher},
     },
-    system::Mode,
 };
 use serde::{Deserialize, Serialize};
 

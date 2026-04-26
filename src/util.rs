@@ -1,13 +1,10 @@
-use crate::{
-    opcode::Op,
-    system::{Symbol, SymbolError, SymbolRead},
-};
+use crate::SymbolError;
+use crate::{opcode::Op, system::Symbol};
 use core::fmt;
 use log::debug;
 use std::{
     collections::HashMap,
     fmt::{Debug, Formatter},
-    io::{BufRead, BufReader},
 };
 
 pub struct Hex<T: Debug>(pub T);
@@ -28,24 +25,22 @@ hex_impl!(&[u8], 2);
 hex_impl!(Op, 4);
 
 pub fn read_symbols(
-    symbols_reader: Box<dyn SymbolRead>,
+    symbols: &str,
     mut breakpoints: Vec<String>,
 ) -> Result<HashMap<(u16, u16), Symbol>, SymbolError> {
-    let reader = BufReader::new(symbols_reader);
     let mut symbol_map = HashMap::new();
-    for line in reader.lines() {
-        let line = line.map_err(SymbolError::Io)?;
+    for line in symbols.lines() {
         let mut fields = line.split_ascii_whitespace();
         let Some((bank, addr)) = fields.next().and_then(|s| s.split_once(':')) else {
             continue;
         };
         let bank = u16::from_str_radix(bank, 16).map_err(SymbolError::Parse)?;
         let addr = u16::from_str_radix(addr, 16).map_err(SymbolError::Parse)?;
-        let name = fields.next().unwrap_or("n/a").into();
+        let name = fields.next().unwrap_or("n/a").to_string();
         let r#break = breakpoints
             .iter()
-            .position(|b| b == &name)
-            .map(|pos| breakpoints.remove(pos))
+            .position(|breakpoint| breakpoint == &name)
+            .map(|i| breakpoints.swap_remove(i))
             .is_some();
         symbol_map.insert((bank, addr), Symbol { name, r#break });
     }

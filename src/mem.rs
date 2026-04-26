@@ -1,11 +1,11 @@
 mod mbc;
 
 use crate::{
+    Joypad, Mode,
     cart::Cart,
     frame::Rgb555,
     mem::mbc::{Mbc, Mbc1ExtBank},
     opcode::{self, Op},
-    system::{Joypad, Mode},
     timer::Timer,
     util::Hex,
 };

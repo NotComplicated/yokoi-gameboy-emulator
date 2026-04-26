@@ -1,7 +1,8 @@
 use crate::{
+    Input, Mode, Options, SymbolError,
     audio::Apu,
     cart::Cart,
-    frame::{Frame, Theme},
+    frame::Frame,
     mem::{self, Memory, Tile},
     opcode::*,
     register::RegisterSet,
@@ -9,11 +10,7 @@ use crate::{
     util::{self, Hex},
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    io::{Read, Write},
-};
+use std::{collections::HashMap, fmt::Debug, io::Read};
 
 #[derive(Serialize, Deserialize)]
 pub struct System {
@@ -29,44 +26,12 @@ pub struct System {
     ime: bool,
     cart_hash: String,
     #[serde(skip)]
-    stack_frames: Vec<StackFrame>,
+    stack_frames: Vec<Address>,
     #[serde(skip)]
     symbol_map: Option<HashMap<(u16, u16), Symbol>>,
     #[serde(skip)]
     breaking: Option<String>,
 }
-
-#[derive(Default)]
-pub struct Input {
-    pub joypad: Joypad,
-    pub save_state: Option<Box<dyn Write>>,
-}
-
-#[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
-pub struct Joypad {
-    pub start: bool,
-    pub select: bool,
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
-    pub a: bool,
-    pub b: bool,
-}
-
-#[derive(Default, Debug)]
-pub struct Options {
-    pub theme: Theme,
-    pub short_circuit: Option<u64>,
-    pub debug: bool,
-    pub strict_mem_access: bool,
-    pub skip_boot: bool,
-    pub symbols: Option<Box<dyn SymbolRead>>,
-    pub breakpoints: Vec<String>,
-}
-
-pub trait SymbolRead: Read + Debug {}
-impl<T: Read + Debug> SymbolRead for T {}
 
 #[derive(Debug)]
 pub enum Error {
@@ -92,20 +57,6 @@ impl From<render::Error> for Error {
     }
 }
 
-#[derive(Debug)]
-pub enum SymbolError {
-    Io(std::io::Error),
-    Parse(std::num::ParseIntError),
-    BreakpointNotFound(String),
-}
-
-#[derive(Copy, Clone, PartialEq, Default, Serialize, Deserialize, Debug)]
-pub enum Mode {
-    #[default]
-    Dmg,
-    Cgb,
-}
-
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 enum State {
     Running,
@@ -115,7 +66,7 @@ enum State {
 }
 
 #[derive(Debug)]
-pub struct StackFrame {
+pub struct Address {
     pub bank: Option<u16>,
     pub addr: u16,
     pub latest_symbol: Option<String>,
@@ -154,13 +105,13 @@ impl System {
         let breakpoints = std::mem::take(&mut options.breakpoints);
         let symbol_map = options
             .symbols
-            .take()
-            .map(|s| util::read_symbols(s, breakpoints))
+            .as_ref()
+            .map(|symbols| util::read_symbols(symbols, breakpoints))
             .transpose()
             .map_err(Error::Symbol)?;
 
         if options.skip_boot {
-            log::info!(options:?; "system initialized");
+            log::info!(options:%; "system initialized");
             let mut system = Self {
                 options,
                 cart_hash,
@@ -175,7 +126,8 @@ impl System {
             let memory = Memory::init(boot_rom, cart, mode, options.strict_mem_access);
             let (current_op, next_pc) = memory.read_op(0)?;
             let op_duration = current_op.properties().duration;
-            log::info!(options:?; "system initialized");
+            log::info!(options:%; "system initialized");
+
             Ok(Self {
                 options,
                 reg_set: RegisterSet {
@@ -208,7 +160,7 @@ impl System {
         }
         system.memory.set_cart(cart);
         system.ppu.set_theme(options.theme);
-        log::info!(options:?; "system loaded from save state");
+        log::info!(options:%; "system loaded from save state");
         system.options = options;
         Ok(system)
     }
@@ -237,7 +189,32 @@ impl System {
         Ok(())
     }
 
-    pub fn stack_frames(&self) -> &[StackFrame] {
+    pub fn address(&self) -> Address {
+        Address {
+            bank: self.memory.bank(self.reg_set.next_pc),
+            addr: self.reg_set.next_pc,
+            latest_symbol: self
+                .stack_frames()
+                .last()
+                .and_then(|frame| frame.latest_symbol.clone()),
+        }
+    }
+
+    pub fn add_breakpoint(&mut self, breakpoint: &str) -> Result<(u16, u16), SymbolError> {
+        if let Some(map) = &mut self.symbol_map {
+            for (&(bank, addr), symbol) in map.iter_mut() {
+                if symbol.name == breakpoint {
+                    symbol.r#break = true;
+                    return Ok((bank, addr));
+                }
+            }
+            Err(SymbolError::BreakpointNotFound(breakpoint.into()))
+        } else {
+            Err(SymbolError::NoneLoaded)
+        }
+    }
+
+    pub fn stack_frames(&self) -> &[Address] {
         &self.stack_frames
     }
 
@@ -267,7 +244,10 @@ impl System {
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {
         match &mut self.options.short_circuit {
-            Some(0) => return Err(Error::ShortCircuit),
+            Some(0) => {
+                self.options.short_circuit = None;
+                return Err(Error::ShortCircuit);
+            }
             Some(sc) => *sc -= 1,
             _ => {}
         }
@@ -424,7 +404,7 @@ impl System {
         self.reg_set.next_pc = a16;
 
         if self.options.debug {
-            self.stack_frames.push(StackFrame {
+            self.stack_frames.push(Address {
                 bank: self.memory.bank(self.reg_set.next_pc),
                 addr: self.reg_set.next_pc,
                 latest_symbol: None,
@@ -442,7 +422,7 @@ impl System {
         {
             log::trace!(symbol = name;"");
             self.breaking = r#break.then(|| name.clone());
-            if let Some(StackFrame { latest_symbol, .. }) = self.stack_frames.last_mut() {
+            if let Some(Address { latest_symbol, .. }) = self.stack_frames.last_mut() {
                 if let Some(prev_name) = latest_symbol {
                     prev_name.clone_from(name);
                 } else {
@@ -450,7 +430,7 @@ impl System {
                 }
             }
         }
-        if let Some(StackFrame { addr, .. }) = self.stack_frames.last_mut() {
+        if let Some(Address { addr, .. }) = self.stack_frames.last_mut() {
             *addr = self.reg_set.pc;
         }
         log::trace!(op:? = Hex(self.current_op), registers:? = self.reg_set;"");

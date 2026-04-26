@@ -7,17 +7,19 @@ use log::LevelFilter;
 use logger::Logger;
 use std::{
     fmt::{Display, Formatter},
-    fs::File,
     io::{self, BufRead, BufReader, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
     process::{Command, Stdio},
 };
 use yokoi::{
+    Mode, Options,
     cart::{Cart, ColorSupport, Feature},
     frame::Theme,
-    system::{Mode, Options, System},
+    system::System,
 };
+
+use crate::debugger::Debugger;
 
 /// Interface with the Yokoi emulator backend from the terminal.
 #[derive(Parser)]
@@ -109,9 +111,9 @@ impl Display for Error {
         match self {
             Self::Io(err) => writeln!(f, "Error: {err}"),
             Self::System(yokoi::system::Error::ShortCircuit) => writeln!(f, "- Short-circuited -"),
-            Self::System(yokoi::system::Error::Symbol(
-                yokoi::system::SymbolError::BreakpointNotFound(breakpoint),
-            )) => writeln!(f, "'{breakpoint}' not found in symbols"),
+            Self::System(yokoi::system::Error::Symbol(yokoi::SymbolError::BreakpointNotFound(
+                breakpoint,
+            ))) => writeln!(f, "'{breakpoint}' not found in symbols"),
             Self::System(yokoi::system::Error::Breakpoint(breakpoint)) => {
                 writeln!(f, "Reached breakpoint: {breakpoint}")
             }
@@ -222,10 +224,9 @@ fn run() -> Result<(), Error> {
                     strict_mem_access,
                     skip_boot,
                     symbols: symbols
-                        .map(File::open)
+                        .map(std::fs::read_to_string)
                         .transpose()
-                        .map_err(Error::Io)?
-                        .map(|f| Box::new(f) as _),
+                        .map_err(Error::Io)?,
                     breakpoints,
                 },
             )
@@ -233,7 +234,7 @@ fn run() -> Result<(), Error> {
 
             // if this a lone debugging session (not connected to a server), don't create a TUI
             if debug && log_socket.is_none() {
-                debugger::run(system)?;
+                Debugger::new(system).run()?;
             } else {
                 let term = ratatui::try_init()?;
                 if let Err(err) = tui::run(term, system) {

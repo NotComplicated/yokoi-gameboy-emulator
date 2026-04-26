@@ -7,8 +7,9 @@ use ratatui::{
 };
 use std::time::{Duration, Instant};
 use yokoi::{
+    Input,
     frame::{Frame, Pixel},
-    system::{Input, System},
+    system::System,
 };
 
 pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
