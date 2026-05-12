@@ -181,12 +181,25 @@ impl System {
         }
     }
 
-    pub fn step(&mut self) -> Result<(), Error> {
+    pub fn step_in(&mut self) -> Result<(), Error> {
         let prev_pc = self.reg_set.pc;
         while self.reg_set.pc == prev_pc {
             self.tick()?;
         }
         Ok(())
+    }
+
+    pub fn step_over(&mut self) -> Result<(), Error> {
+        let depth = self.stack_frames.len();
+        loop {
+            let prev_pc = self.reg_set.pc;
+            while self.reg_set.pc == prev_pc {
+                self.tick()?;
+            }
+            if self.stack_frames.len() <= depth {
+                break Ok(());
+            }
+        }
     }
 
     pub fn address(&self) -> Address {
@@ -323,7 +336,7 @@ impl System {
                     (self.current_op, self.reg_set.next_pc) =
                         self.memory.read_op(self.reg_set.pc)?;
                     self.state = State::Running;
-                    self.op_duration = Duration::Const(5);
+                    self.op_duration = Duration::Const(20);
                     break;
                 }
             }

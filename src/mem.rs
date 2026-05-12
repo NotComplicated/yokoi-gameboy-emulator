@@ -1001,10 +1001,10 @@ impl Memory {
         let mut bg_log = String::new();
         for row in self.vram[map_addr..].chunks(32).take(32) {
             for &tile_rel in row {
-                let tile_abs = if self.lcd.ctrl & 0b00010000 == 0 {
+                let tile_abs = if self.lcd.ctrl & 0b00010000 != 0 {
                     tile_rel as u16
-                } else if tile_rel > 127 {
-                    0x80 + (tile_rel - 127) as u16
+                } else if tile_rel >= 0x80 {
+                    0x80 + (tile_rel - 0x80) as u16
                 } else {
                     0x100 + tile_rel as u16
                 };

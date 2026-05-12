@@ -17,10 +17,11 @@ d - display the current frame
 e - display the current frame with 8-pixel guides
 l - set log level
 m - print main memory registers
+n - step over the next instruction / function call
 o - print OAM data
 p - print background tile data
 r - display the full background
-s - step over to the next instruction
+s - step over the next instruction
 t - print a stack trace
 u - print PPU state
 v - dump VRAM tile data to a bmp file";
@@ -183,6 +184,13 @@ impl Debugger {
                         }
                     }
                     'm' => self.system.log_mem_registers(),
+                    'n' => match self.system.step_over() {
+                        Ok(()) => {}
+                        Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
+                            log::info!(breakpoint;"")
+                        }
+                        Err(err) => return Err(Error::System(err)),
+                    },
                     'o' => self.system.log_oam(),
                     'p' => self.system.log_bg(),
                     'q' => break Ok(HandleBreak::Quit),
@@ -195,7 +203,7 @@ impl Debugger {
                                     for dx in 0..8 {
                                         let lower = (lsb >> (7 - dx)) & 1;
                                         let upper = (msb >> (7 - dx)) & 1;
-                                        let c = 255 - 85 * (upper * 2 + lower);
+                                        let c = 85 * (upper * 2 + lower);
                                         image_buf.put_pixel(x + dx, y + dy, [c, c, c].into());
                                     }
                                 }
@@ -204,7 +212,7 @@ impl Debugger {
                         image_buf.save("background.bmp").map_err(Error::Image)?;
                         viuer::print(&image_buf.into(), &viuer_config()).map_err(Error::Viuer)?;
                     }
-                    's' => match self.system.step() {
+                    's' => match self.system.step_in() {
                         Ok(()) => {}
                         Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
                             log::info!(breakpoint;"")
@@ -238,7 +246,7 @@ impl Debugger {
                                     for dx in 0..8 {
                                         let lower = (lsb >> (7 - dx)) & 1;
                                         let upper = (msb >> (7 - dx)) & 1;
-                                        let c = 255 - 85 * (upper * 2 + lower);
+                                        let c = 85 * (upper * 2 + lower);
                                         image_buf.put_pixel(x + dx, y + dy, [c, c, c].into());
                                     }
                                 }

@@ -280,8 +280,8 @@ impl Ppu {
                         let bg_tile = memory.read_ppu(bg_tile_addr)?;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (bg_tile as u16)
-                        } else if bg_tile > 127 {
-                            DATA_1_START + 16 * ((bg_tile - 127) as u16)
+                        } else if bg_tile >= 0x80 {
+                            DATA_1_START + 16 * ((bg_tile - 0x80) as u16)
                         } else {
                             DATA_2_START + 16 * (bg_tile as u16)
                         } + 2 * (y as u16 % 8);
@@ -322,8 +322,8 @@ impl Ppu {
                         let w_tile = memory.read_ppu(w_tile_addr)?;
                         let data_addr = if self.bg_w_data_addr == DATA_0_START {
                             DATA_0_START + 16 * (w_tile as u16)
-                        } else if w_tile > 127 {
-                            DATA_1_START + 16 * ((w_tile - 127) as u16)
+                        } else if w_tile >= 0x80 {
+                            DATA_1_START + 16 * ((w_tile - 0x80) as u16)
                         } else {
                             DATA_2_START + 16 * (w_tile as u16)
                         } + 2 * (self.window_counter % 8);
