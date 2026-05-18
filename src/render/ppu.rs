@@ -163,9 +163,9 @@ impl Ppu {
                                     palette: if self.mode == Mode::Cgb {
                                         flags & 0b00000111
                                     } else {
-                                        flags & 0b00010000 >> 4
+                                        (flags & 0b00010000) >> 4
                                     },
-                                    bank: flags & 0b00001000 >> 3,
+                                    bank: (flags & 0b00001000) >> 3,
                                 };
                                 oam.len += 1;
                                 if oam.len == oam.buffer.len() {
@@ -358,7 +358,6 @@ impl Ppu {
                         tile_x,
                     } => {
                         let obj = oam.buffer[index];
-                        log::trace!(obj:?; "drawing object");
                         if self.mode == Mode::Cgb && obj.bank == 1 {
                             todo!("read tile from cgb bank 1")
                         }
@@ -390,19 +389,16 @@ impl Ppu {
                                 pixels
                             };
 
-                        for (i, &pixel) in pixels.iter().enumerate() {
+                        for (i, &obj_pixel) in pixels.iter().enumerate() {
                             let fifo_pixel = &mut fifo.buffer[(fifo.front + i) % fifo.buffer.len()];
                             // https://gbdev.io/pandocs/Tile_Maps.html#bg-to-obj-priority-in-cgb-mode
-                            *fifo_pixel =
-                                match (self.bg_w_priority, pixel.priority, fifo_pixel.priority) {
-                                    (true, 1, 1) | (true, 1, 0) | (true, 0, 1)
-                                        if fifo_pixel.color != 0 =>
-                                    {
-                                        *fifo_pixel
-                                    }
-                                    _ if pixel.color == 0 => *fifo_pixel,
-                                    _ => pixel,
-                                };
+                            if (!self.bg_w_priority
+                                || obj_pixel.priority + fifo_pixel.priority == 0
+                                || fifo_pixel.color == 0)
+                                && obj_pixel.color > 0
+                            {
+                                *fifo_pixel = obj_pixel;
+                            }
                         }
 
                         if *in_window {

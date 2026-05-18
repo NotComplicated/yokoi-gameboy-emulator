@@ -203,7 +203,7 @@ impl Debugger {
                                     for dx in 0..8 {
                                         let lower = (lsb >> (7 - dx)) & 1;
                                         let upper = (msb >> (7 - dx)) & 1;
-                                        let c = 85 * (upper * 2 + lower);
+                                        let c = 255 - 85 * (upper * 2 + lower);
                                         image_buf.put_pixel(x + dx, y + dy, [c, c, c].into());
                                     }
                                 }
@@ -246,7 +246,7 @@ impl Debugger {
                                     for dx in 0..8 {
                                         let lower = (lsb >> (7 - dx)) & 1;
                                         let upper = (msb >> (7 - dx)) & 1;
-                                        let c = 85 * (upper * 2 + lower);
+                                        let c = 255 - 85 * (upper * 2 + lower);
                                         image_buf.put_pixel(x + dx, y + dy, [c, c, c].into());
                                     }
                                 }

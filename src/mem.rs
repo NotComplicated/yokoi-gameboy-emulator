@@ -983,9 +983,9 @@ impl Memory {
             let palette = if self.mode == Mode::Cgb {
                 flags & 0b00000111
             } else {
-                flags & 0b00010000 >> 4
+                (flags & 0b00010000) >> 4
             };
-            let bank = flags & 0b00001000 >> 3;
+            let bank = (flags & 0b00001000) >> 3;
             log::info!(
                 "        - priority: {priority}, y_flip: {y_flip}, x_flip: {x_flip}, palette: {palette}, bank: {bank}"
             );

@@ -10,7 +10,7 @@ pub fn fetch_tile_pixels(memory: &Memory, addr: u16) -> Result<[Pixel; 8], Error
     let lo = memory.read_ppu(addr)?;
     let hi = memory.read_ppu(addr + 1)?;
     Ok(std::array::from_fn(|i| render::Pixel {
-        color: ((lo >> (7 - i)) % 2) * 2 + ((hi >> (7 - i)) % 2),
+        color: (((hi >> (7 - i)) % 2) << 1) | ((lo >> (7 - i)) % 2),
         ..Default::default()
     }))
 }

@@ -14,7 +14,7 @@ use yokoi::{
 
 pub fn run(mut term: DefaultTerminal, mut system: System) -> Result<(), Error> {
     let mut screen = GameScreen::default();
-    let delta_time = Duration::from_millis(10);
+    let delta_time = Duration::from_secs(1) / 100;
     'game_loop: loop {
         let mut now = Instant::now();
         let next_frame_at = now + delta_time;
