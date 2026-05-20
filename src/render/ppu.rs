@@ -227,7 +227,6 @@ impl Ppu {
                 fetcher,
                 discard,
             } => {
-                let x_tile_last = (X_END / 8) - 1;
                 let scroll_x = memory.read(mem::SCROLL_X_REG)?;
                 let scroll_y = memory.read(mem::SCROLL_Y_REG)?;
 
@@ -307,7 +306,7 @@ impl Ppu {
                                 }
                             } else {
                                 Fetcher::Bg {
-                                    tile_x: x_tile_last.min(tile_x + 1),
+                                    tile_x: tile_x + 1,
                                     progress: fetcher::FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
@@ -349,7 +348,7 @@ impl Ppu {
                                 }
                             } else {
                                 Fetcher::Window {
-                                    tile_x: x_tile_last.min(tile_x + 1),
+                                    tile_x: tile_x + 1,
                                     progress: fetcher::FETCH_STEPS,
                                     cached: None,
                                     obj_queued: None,
