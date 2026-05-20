@@ -1,8 +1,8 @@
 use crate::Error;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
-use image::RgbImage;
+use image::{Rgb, RgbImage};
 use yokoi::{
-    Input, SymbolError,
+    Input, ScreenPos, SymbolError,
     frame::{Frame, Pixel},
     system::{Address, System},
 };
@@ -25,6 +25,8 @@ s - step over the next instruction
 t - print a stack trace
 u - print PPU state
 v - dump VRAM tile data to a bmp file";
+
+const GUIDE_COLOR: Rgb<u8> = Rgb([135, 206, 235]);
 
 fn viuer_config() -> viuer::Config {
     let (width, height) = viuer::terminal_size();
@@ -92,12 +94,11 @@ impl Debugger {
         if guides {
             for x in (0..image_buf.width()).step_by(8).skip(1) {
                 for y in (0..image_buf.height()).step_by(8).skip(1) {
-                    let pixel = [135, 206, 235].into();
-                    image_buf.put_pixel(x - 1, y, pixel);
-                    image_buf.put_pixel(x + 1, y, pixel);
-                    image_buf.put_pixel(x, y - 1, pixel);
-                    image_buf.put_pixel(x, y + 1, pixel);
-                    image_buf.put_pixel(x, y, pixel);
+                    image_buf.put_pixel(x - 1, y, GUIDE_COLOR);
+                    image_buf.put_pixel(x + 1, y, GUIDE_COLOR);
+                    image_buf.put_pixel(x, y - 1, GUIDE_COLOR);
+                    image_buf.put_pixel(x, y + 1, GUIDE_COLOR);
+                    image_buf.put_pixel(x, y, GUIDE_COLOR);
                 }
             }
         }
@@ -148,6 +149,7 @@ impl Debugger {
                             log::info!("bank - 00, addr - {addr:04X}");
                         }
                     },
+
                     'b' => {
                         log::info!("add breakpoint:");
                         let breakpoint = std::io::stdin().lines().next().unwrap()?;
@@ -164,10 +166,15 @@ impl Debugger {
                             _ => panic!("unexpected error"),
                         }
                     }
+
                     'c' => break Ok(HandleBreak::Continue),
+
                     'd' => self.display_frame(false)?,
+
                     'e' => self.display_frame(true)?,
+
                     'h' => log::info!("{HELP_TEXT}"),
+
                     'l' => {
                         log::info!("new level:");
                         if let Ok(filter) = std::io::stdin()
@@ -183,7 +190,9 @@ impl Debugger {
                             log::error!("invalid log level");
                         }
                     }
+
                     'm' => self.system.log_mem_registers(),
+
                     'n' => match self.system.step_over() {
                         Ok(()) => {}
                         Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
@@ -191,9 +200,13 @@ impl Debugger {
                         }
                         Err(err) => return Err(Error::System(err)),
                     },
+
                     'o' => self.system.log_oam(),
+
                     'p' => self.system.log_bg(),
+
                     'q' => break Ok(HandleBreak::Quit),
+
                     'r' => {
                         let background = self.system.background();
                         let mut image_buf = RgbImage::new(32 * 8, 32 * 8);
@@ -209,9 +222,33 @@ impl Debugger {
                                 }
                             }
                         }
+                        let [top_left, bottom_right] = self.system.bounds();
+                        let offsets = [
+                            (0, 0),
+                            (0, 1),
+                            (1, 0),
+                            (1, 1),
+                            (2, 0),
+                            (2, 1),
+                            (3, 0),
+                            (3, 1),
+                            (0, 2),
+                            (0, 3),
+                            (1, 2),
+                            (1, 3),
+                        ]
+                        .map(|(x, y)| ScreenPos::new(x, y));
+                        for point in offsets
+                            .into_iter()
+                            .map(|offset| top_left + offset)
+                            .chain(offsets.into_iter().map(|offset| bottom_right - offset))
+                        {
+                            image_buf.put_pixel(point.x.0.into(), point.y.0.into(), GUIDE_COLOR);
+                        }
                         image_buf.save("background.bmp").map_err(Error::Image)?;
                         viuer::print(&image_buf.into(), &viuer_config()).map_err(Error::Viuer)?;
                     }
+
                     's' => match self.system.step_in() {
                         Ok(()) => {}
                         Err(yokoi::system::Error::Breakpoint(breakpoint)) => {
@@ -219,6 +256,7 @@ impl Debugger {
                         }
                         Err(err) => return Err(Error::System(err)),
                     },
+
                     't' => {
                         for (i, frame) in self.system.stack_frames().iter().enumerate() {
                             log::info!(
@@ -230,7 +268,9 @@ impl Debugger {
                             );
                         }
                     }
+
                     'u' => self.system.log_ppu_state(),
+
                     'v' => {
                         let tiles = self.system.vram_tiles();
                         let cols = 24;

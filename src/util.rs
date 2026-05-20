@@ -2,6 +2,8 @@ use crate::SymbolError;
 use crate::{opcode::Op, system::Symbol};
 use core::fmt;
 use log::debug;
+use std::num::Wrapping;
+use std::ops::{Add, Sub};
 use std::{
     collections::HashMap,
     fmt::{Debug, Formatter},
@@ -23,6 +25,43 @@ hex_impl!(u16, 4);
 hex_impl!(u32, 8);
 hex_impl!(&[u8], 2);
 hex_impl!(Op, 4);
+
+#[derive(Copy, Clone, Debug)]
+pub struct ScreenPos {
+    pub x: Wrapping<u8>,
+    pub y: Wrapping<u8>,
+}
+
+impl ScreenPos {
+    pub fn new(x: u8, y: u8) -> Self {
+        Self {
+            x: Wrapping(x),
+            y: Wrapping(y),
+        }
+    }
+}
+
+impl Add for ScreenPos {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub for ScreenPos {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
 
 pub fn read_symbols(
     symbols: &str,

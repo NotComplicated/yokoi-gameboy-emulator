@@ -7,7 +7,7 @@ use crate::{
     opcode::*,
     register::RegisterSet,
     render::{self, ppu::Ppu},
-    util::{self, Hex},
+    util::{self, Hex, ScreenPos},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Debug, io::Read};
@@ -253,6 +253,15 @@ impl System {
 
     pub fn background(&self) -> [[Tile; 32]; 32] {
         self.memory.background()
+    }
+
+    pub fn bounds(&self) -> [ScreenPos; 2] {
+        let top_left = ScreenPos::new(
+            self.memory.read(mem::SCROLL_X_REG).expect("read scx"),
+            self.memory.read(mem::SCROLL_Y_REG).expect("read scy"),
+        );
+        let bottom_right = top_left + ScreenPos::new(160, 144);
+        [top_left, bottom_right]
     }
 
     fn tick(&mut self) -> Result<Option<Frame>, Error> {

@@ -17,6 +17,8 @@ pub mod cart;
 pub mod frame;
 pub mod system;
 
+pub use util::ScreenPos;
+
 #[derive(Default)]
 pub struct Input {
     pub joypad: Joypad,

@@ -423,7 +423,7 @@ impl Ppu {
                 }
 
                 // first SCX%8 columns of the scanline
-                while *discard > 0 {
+                while fifo.len > 0 && *discard > 0 {
                     fifo.pop();
                     *discard -= 1;
                 }
