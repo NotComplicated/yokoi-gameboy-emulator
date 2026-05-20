@@ -506,7 +506,7 @@ impl Ppu {
                     if self.obj_enabled {
                         if let Some(i) = oam.buffer[..oam.len]
                             .iter()
-                            .position(|obj| obj.x.saturating_sub(8) == px.wrapping_add(scroll_x))
+                            .position(|obj| obj.x.saturating_sub(8) == *px)
                         {
                             if fifo.len >= 8 {
                                 *fetcher = Fetcher::Object {
