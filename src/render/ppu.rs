@@ -208,6 +208,18 @@ impl Ppu {
             }
 
             State::Drawing {
+                px: X_END,
+                in_window,
+                ..
+            } => {
+                if *in_window {
+                    self.window_counter += 1;
+                }
+                self.state = State::Hblank;
+                memory.set_lock(mem::Lock::Unlocked);
+            }
+
+            State::Drawing {
                 oam,
                 fifo,
                 px,
@@ -252,7 +264,7 @@ impl Ppu {
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    tile_x,
+                                    tile_x: tile_x + 1,
                                     progress: fetcher::FETCH_STEPS,
                                     index,
                                 }
@@ -289,7 +301,7 @@ impl Ppu {
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    tile_x,
+                                    tile_x: tile_x + 1,
                                     progress: fetcher::FETCH_STEPS,
                                     index,
                                 }
@@ -331,7 +343,7 @@ impl Ppu {
                         if fifo.push_8(pixels).is_ok() {
                             *fetcher = if let Some(index) = obj_queued {
                                 Fetcher::Object {
-                                    tile_x,
+                                    tile_x: tile_x + 1,
                                     progress: fetcher::FETCH_STEPS,
                                     index,
                                 }
@@ -479,52 +491,45 @@ impl Ppu {
                     };
                     self.frame.0[self.ly as usize][*px as usize].set(frame_pixel);
 
-                    *px += 1;
-                    if *px == X_END {
-                        if *in_window {
-                            self.window_counter += 1;
-                        }
-                        self.state = State::Hblank;
-                        memory.set_lock(mem::Lock::Unlocked);
-                    } else {
-                        if self.window_enabled
-                            && self.window_latched
-                            && !*in_window
-                            && memory.read(mem::WINDOW_X_REG)? == *px + 7
+                    if self.window_enabled
+                        && self.window_latched
+                        && !*in_window
+                        && memory.read(mem::WINDOW_X_REG)? == px.saturating_add(7)
+                    {
+                        *fetcher = Fetcher::Window {
+                            tile_x: 0,
+                            progress: fetcher::FETCH_STEPS,
+                            cached: None,
+                            obj_queued: None,
+                        };
+                        *in_window = true;
+                    }
+                    if self.obj_enabled {
+                        if let Some(i) = oam.buffer[..oam.len]
+                            .iter()
+                            .position(|obj| obj.x.saturating_sub(8) == px.wrapping_add(scroll_x))
                         {
-                            *fetcher = Fetcher::Window {
-                                tile_x: 0,
-                                progress: fetcher::FETCH_STEPS,
-                                cached: None,
-                                obj_queued: None,
-                            };
-                            *in_window = true;
-                        }
-                        if self.obj_enabled {
-                            for i in 0..oam.len {
-                                if px.wrapping_add(scroll_x) == oam.buffer[i].x.saturating_sub(8) {
-                                    if fifo.len >= 8 {
-                                        *fetcher = Fetcher::Object {
-                                            tile_x: fetcher.tile_x(),
-                                            progress: fetcher::FETCH_STEPS,
-                                            index: i,
-                                        };
-                                    } else {
-                                        match fetcher {
-                                            Fetcher::Bg { obj_queued, .. }
-                                            | Fetcher::Window { obj_queued, .. } => {
-                                                *obj_queued = Some(i);
-                                            }
-                                            Fetcher::Object { .. } => {
-                                                unreachable!("can't pop pixels during object fetch")
-                                            }
-                                        }
+                            if fifo.len >= 8 {
+                                *fetcher = Fetcher::Object {
+                                    tile_x: fetcher.tile_x(),
+                                    progress: fetcher::FETCH_STEPS,
+                                    index: i,
+                                };
+                            } else {
+                                match fetcher {
+                                    Fetcher::Bg { obj_queued, .. }
+                                    | Fetcher::Window { obj_queued, .. } => {
+                                        *obj_queued = Some(i);
                                     }
-                                    break;
+                                    Fetcher::Object { .. } => {
+                                        unreachable!("can't pop pixels during object fetch")
+                                    }
                                 }
                             }
                         }
                     }
+
+                    *px += 1;
                 }
             }
         }
